@@ -1,0 +1,355 @@
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+			[
+				"Windoe",
+				"WindowEventType"
+			],
+			[
+				"Wind",
+				"WindowEvent"
+			],
+			[
+				"hand",
+				"handle_window_close(event: Event, windows: ^[dynamic]^Window)"
+			],
+			[
+				"WindoW",
+				"WindowEventType"
+			],
+			[
+				"trans",
+				"event_bus_translate(sdl_event: ^sdl3.Event) "
+			],
+			[
+				"wn",
+				"window"
+			],
+			[
+				"getdisplay",
+				"GetDisplayForWindow(window: Window) "
+			],
+			[
+				"dis",
+				"display_ids"
+			],
+			[
+				"display",
+				"GetDisplays(count: ^c.int) "
+			],
+			[
+				"KEYMOD",
+				"KeymodFlag"
+			],
+			[
+				"Key",
+				"KeyboardFlags_Set"
+			],
+			[
+				"Keyb",
+				"KeyboardActionTrigger"
+			],
+			[
+				"Keyboard",
+				"KeyboardActionTrigger"
+			],
+			[
+				"SDL",
+				"sdl"
+			],
+			[
+				"event_",
+				"event_bus_destroy(bus: ^EventBus)"
+			],
+			[
+				"Create",
+				"CreateWindow(width, height: c.int, title: cstring, monitor: MonitorHandle, share: WindowHandle) "
+			],
+			[
+				"WindowS",
+				"WindowSize_Default"
+			],
+			[
+				"INIT_",
+				"INIT_EVENTS"
+			],
+			[
+				"or_",
+				"or_continue"
+			],
+			[
+				"make_",
+				"make_sdl_error(err: cstring) "
+			],
+			[
+				"sd",
+				"sdl3"
+			],
+			[
+				"CENTERED",
+				"WINDOWPOS_CENTERED"
+			],
+			[
+				"cstring",
+				"clone_to_cstring(s: string, allocator := context.allocator, loc := #caller_location) "
+			],
+			[
+				"WINDOWPOS_",
+				"WINDOWPOS_UNDEFINED"
+			],
+			[
+				"WindowM",
+				"WINDOW_MAXIMIZED"
+			],
+			[
+				"WIND",
+				"WINDOWPOS_UNDEFINED"
+			],
+			[
+				"CreateWindow",
+				"CreateWindow(title: cstring, w, h: c.int, flags: WindowFlags) "
+			],
+			[
+				"Windows",
+				"WindowSizingType"
+			]
+		]
+	},
+	"buffers":
+	[
+	],
+	"build_system": "",
+	"build_system_choices":
+	[
+	],
+	"build_varint": "",
+	"command_palette":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+			[
+				"project",
+				"Project: Close"
+			],
+			[
+				"logs",
+				"LSP: Toggle Diagnostics Panel"
+			],
+			[
+				"install",
+				"Package Control: Install Package"
+			],
+			[
+				"enable",
+				"LSP: Enable Language Server Globally"
+			],
+			[
+				"enable in project",
+				"LSP: Enable Language Server in Project"
+			],
+			[
+				"lsp",
+				"Preferences: LSP Settings"
+			],
+			[
+				"instal",
+				"Package Control: Install Package"
+			],
+			[
+				"theme",
+				"UI: Select Theme"
+			]
+		],
+		"width": 0.0
+	},
+	"console":
+	{
+		"height": 136.0,
+		"history":
+		[
+			"os.environ['PATH']",
+			"odin",
+			"os.environ['PATH']",
+			"os['env']",
+			"import os"
+		]
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": false,
+		"show_open_files": false,
+		"show_tabs": false,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"expanded_folders":
+	[
+		"/home/ygunayer/dev/monokl-odin"
+	],
+	"file_history":
+	[
+		"/home/ygunayer/dev/monokl-odin/monokl.sublime-project",
+		"/home/ygunayer/dev/monokl-odin/window.odin",
+		"/home/ygunayer/dev/monokl-odin/events.odin",
+		"/home/ygunayer/dev/monokl-odin/main.odin",
+		"/home/ygunayer/dev/monokl-odin/settings.odin",
+		"/home/ygunayer/gamedev/odinboys/window.odin",
+		"/home/ygunayer/gamedev/odinboys/main.odin",
+		"/home/ygunayer/gamedev/odinboys/src/window/window.odin",
+		"/home/ygunayer/gamedev/odinboys/src/main.odin",
+		"/home/ygunayer/gamedev/odinboys/src/events.odin",
+		"/home/ygunayer/gamedev/odinboys/src/actions.odin",
+		"/home/ygunayer/gamedev/odinboys/src/window.odin",
+		"/home/ygunayer/gamedev/odinboys/odinboys.sublime-project",
+		"/home/ygunayer/gamedev/odinboys/src/error.odin",
+		"/home/ygunayer/gamedev/odinboys/src/common.odin"
+	],
+	"find":
+	{
+		"height": 28.0
+	},
+	"find_in_files":
+	{
+		"height": 104.0,
+		"where_history":
+		[
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": false,
+		"find_history":
+		[
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+		],
+		"reverse": false,
+		"scrollbar_highlights": true,
+		"show_context": true,
+		"use_buffer2": true,
+		"use_gitignore": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"sheets":
+			[
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 28.0
+	},
+	"input":
+	{
+		"height": 40.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"output.LSP Log Panel":
+	{
+		"height": 210.0
+	},
+	"output.diagnostics":
+	{
+		"height": 132.0
+	},
+	"output.exec":
+	{
+		"height": 132.0
+	},
+	"output.find_results":
+	{
+		"height": 0.0
+	},
+	"output.mdpopups":
+	{
+		"height": 0.0
+	},
+	"pinned_build_system": "Odin - src/main.odin",
+	"project": "monokl.sublime-project",
+	"replace":
+	{
+		"height": 52.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 500.0,
+		"last_filter": "",
+		"selected_items":
+		[
+			[
+				"",
+				"~/gamedev/odinboys/odinboys.sublime-workspace"
+			]
+		],
+		"width": 380.0
+	},
+	"select_symbol":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"selected_group": 0,
+	"settings":
+	{
+		"lsp_show_inlay_hints": false
+	},
+	"show_minimap": true,
+	"show_open_files": false,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 265.0,
+	"status_bar_visible": true,
+	"template_settings":
+	{
+	}
+}

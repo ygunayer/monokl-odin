@@ -1,0 +1,26 @@
+{
+	"folders":
+	[
+		{
+			"path": "."
+		}
+	],
+	"settings":
+	{
+		"LSP":
+		{
+			"odin":
+			{
+				"enabled": true
+			}
+		}
+	},
+	"build_systems":
+	[
+		{
+			"name": "Odin - Run Current Folder",
+			"cmd": ["odin", "run", "."],
+			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$"
+		}
+	]
+}
