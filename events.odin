@@ -39,10 +39,10 @@ EventBus :: struct {
   handlers: map[HandlerId]EventHandler,
 }
 
-event_bus_init :: proc() -> EventBus {
+event_bus_init :: proc(allocator := context.allocator) -> EventBus {
   bus: EventBus
   bus.next_id = 1
-  bus.handlers = make(map[HandlerId]EventHandler)
+  bus.handlers = make(map[HandlerId]EventHandler, allocator)
   return bus
 }
 

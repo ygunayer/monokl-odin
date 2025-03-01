@@ -5,14 +5,33 @@ import sdl "vendor:sdl3"
 import "core:c"
 import "core:log"
 import "core:os"
+import "core:mem"
 
 main :: proc() {
   logger := log.create_console_logger()
   context.logger = logger
 
+  ta: mem.Tracking_Allocator
+  mem.tracking_allocator_init(&ta, context.allocator)
+  context.allocator = mem.tracking_allocator(&ta)
+
+  clear_ta :: proc(a: ^mem.Tracking_Allocator) -> bool {
+    num_leaked, total_size: int
+    for _, value in a.allocation_map {
+      num_leaked += 1
+      total_size += value.size
+      log.errorf("Leaked %v bytes at %v", value.size, value.location)
+      leaked := true
+    }
+    if num_leaked > 0 {
+      log.errorf("Found %v memory leaks for a total of %v bytes", num_leaked, total_size)
+    }
+    mem.tracking_allocator_clear(a)
+    return num_leaked > 0
+  }
+
   init_success := sdl.Init(sdl.INIT_VIDEO)
   assert(init_success, string(sdl.GetError()))
-  defer sdl.Quit()
 
   bus := event_bus_init()
   defer event_bus_destroy(&bus)
@@ -34,8 +53,6 @@ main :: proc() {
   if err != nil {
     panic(fmt.tprintf("Failed to create initial window due to: %v", err))
   }
-
-  defer window_destroy(first_window)
 
   windows: [dynamic]^Window;
   append(&windows, first_window)
@@ -72,5 +89,21 @@ main :: proc() {
     for w in windows {
       window_render(w)
     }
+
+    if len(ta.bad_free_array) > 0 {
+      for v in ta.bad_free_array {
+        log.errorf("Bad free at %v", v.location)
+      }
+    }
+
+    // free_all(context.temp_allocator)
   }
+  // free_all(context.temp_allocator)
+
+  delete(windows)
+
+  clear_ta(&ta)
+  mem.tracking_allocator_destroy(&ta)
+
+  sdl.Quit()
 }

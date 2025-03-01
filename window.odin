@@ -29,7 +29,7 @@ Window :: struct {
   handler_id: HandlerId,
 }
 
-window_init :: proc(settings: WindowSettings, bus: ^EventBus, allocator: mem.Allocator = context.allocator) -> (^Window, Error) {
+window_init :: proc(settings: WindowSettings, bus: ^EventBus, allocator := context.allocator) -> (^Window, Error) {
   flags := sdl.WINDOW_RESIZABLE
 
   if settings.maximized {
