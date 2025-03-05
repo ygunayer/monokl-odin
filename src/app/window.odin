@@ -1,8 +1,10 @@
-package monokl
+package app
 
 import "core:strings"
 import sdl "vendor:sdl3"
 import "core:mem"
+
+import "../playlist"
 
 Vector2 :: distinct [2]i32
 WindowId :: sdl.WindowID
@@ -27,9 +29,16 @@ Window :: struct {
   size: Vector2,
   position: Vector2,
   handler_id: HandlerId,
+  playlist: ^playlist.Playlist,
 }
 
-window_init :: proc(settings: WindowSettings, bus: ^EventBus, allocator := context.allocator) -> (^Window, Error) {
+Window_Error :: union {
+  SdlError,
+  mem.Allocator_Error,
+  playlist.Playlist_Error,
+}
+
+window_init :: proc(settings: WindowSettings, bus: ^EventBus, allocator := context.allocator) -> (w: ^Window, error: Window_Error) {
   flags := sdl.WINDOW_RESIZABLE
 
   if settings.maximized {
@@ -55,7 +64,7 @@ window_init :: proc(settings: WindowSettings, bus: ^EventBus, allocator := conte
   if window == nil {
     defer sdl.DestroyRenderer(renderer)
     defer sdl.DestroyWindow(wnd)
-    return nil, "Failed to allocate memory for a new window"
+    return nil, mem.Allocator_Error.Out_Of_Memory
   }
 
   window.id = sdl.GetWindowID(wnd)
@@ -67,7 +76,9 @@ window_init :: proc(settings: WindowSettings, bus: ^EventBus, allocator := conte
   return window, nil
 }
 
-window_destroy :: proc(window: ^Window) {
+window_destroy :: proc(window: ^Window, allocator := context.allocator) {
+  window_unload_playlist(window)
+
   if window.renderer != nil {
     sdl.DestroyRenderer(window.renderer)
     window.renderer = nil
@@ -77,6 +88,8 @@ window_destroy :: proc(window: ^Window) {
     sdl.DestroyWindow(window.wnd)
     window.wnd = nil
   }
+
+  free(window, allocator)
 }
 
 window_render :: proc(window: ^Window) {
@@ -84,4 +97,25 @@ window_render :: proc(window: ^Window) {
   sdl.SetRenderDrawColorFloat(window.renderer, color.r, color.g, color.b, color.a)
   sdl.RenderClear(window.renderer)
   sdl.RenderPresent(window.renderer)
+}
+
+window_unload_playlist :: proc(window: ^Window, allocator := context.allocator) {
+  if window.playlist != nil {
+    playlist.playlist_destroy(window.playlist, allocator)
+    window.playlist = nil
+  }
+}
+
+window_load_playlist :: proc(window: ^Window, path: string, allocator := context.allocator) -> playlist.Playlist_Error {
+  pl := new(playlist.Playlist, allocator)
+
+  err := playlist.playlist_open(pl, path, allocator)
+  if err != nil {
+    free(pl, allocator)
+    return err
+  }
+
+  window_unload_playlist(window)
+  window.playlist = pl
+  return nil
 }

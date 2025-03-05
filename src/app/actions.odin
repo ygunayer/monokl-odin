@@ -1,4 +1,4 @@
-package monokl
+package app
 
 import sdl "vendor:sdl3"
 

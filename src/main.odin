@@ -6,6 +6,9 @@ import "core:c"
 import "core:log"
 import "core:os"
 import "core:mem"
+import "core:time"
+
+import "app"
 
 main :: proc() {
   logger := log.create_console_logger()
@@ -33,51 +36,58 @@ main :: proc() {
   init_success := sdl.Init(sdl.INIT_VIDEO)
   assert(init_success, string(sdl.GetError()))
 
-  bus := event_bus_init()
-  defer event_bus_destroy(&bus)
+  bus := app.event_bus_init()
+  defer app.event_bus_destroy(&bus)
 
-  playlist, perr := playlist_open("/home/ygunayer/Pictures/Screenshots")
-  if perr != nil {
-    log.errorf("Failed to open playlist: %v", perr)
-    os.exit(1)
-  }
-
-  window_settings := WindowSettings {
-    initial_position = WindowPosition_Centered,
-    initial_size = WindowSize_Default,
+  window_settings := app.WindowSettings {
+    initial_position = app.WindowPosition_Centered,
+    initial_size = app.WindowSize_Default,
     maximized = false,
     title = cstring("monokl"),
   }
 
-  first_window, err := window_init(window_settings, &bus)
+  first_window, err := app.window_init(window_settings, &bus)
   if err != nil {
     panic(fmt.tprintf("Failed to create initial window due to: %v", err))
   }
 
-  windows: [dynamic]^Window;
+  windows: [dynamic]^app.Window
   append(&windows, first_window)
 
+  perr := app.window_load_playlist(first_window, "C:\\Users\\Selgesel\\Downloads\\sticky\\named\\mikey-madison")
+  if perr != nil {
+    log.warnf("Failed to load playlist for initial window due to %v", perr)
+  }
+
   sdl_event: sdl.Event
+
+  initial_time := time.tick_now()
+  last_rendered := time.tick_now()
+
+  target_fps := 20.0
+  max_frame_delay := 1000.0 / target_fps
+  fmt.printfln("FRAME DELAY: %.2f", max_frame_delay)
+
   for {
     if len(windows) < 1 {
-      return
+      break
     }
 
     has_event := sdl.PollEvent(&sdl_event)
     if has_event {
-      event, ok := event_bus_translate(&sdl_event).?
+      event, ok := app.event_bus_translate(&sdl_event).?
       if !ok {
         continue
       }
 
-      event_bus_publish(&bus, event)
+      app.event_bus_publish(&bus, event)
 
       switch e in event {
-        case WindowEvent:
+        case app.WindowEvent:
           if e.type == .CloseRequested {
             for w, i in windows {
               if w.id == e.event.window_id {
-                window_destroy(w)
+                app.window_destroy(w)
                 unordered_remove(&windows, i)
                 break
               }
@@ -86,9 +96,17 @@ main :: proc() {
       }
     }
 
-    for w in windows {
-      window_render(w)
+    elapsed := time.duration_milliseconds(time.tick_since(last_rendered))
+
+    if elapsed >= max_frame_delay {
+      last_rendered = time.tick_now()
+      fmt.printfln("Rendered after delay: %.4f", elapsed)
+
+      for w in windows {
+        app.window_render(w)
+      }
     }
+
 
     if len(ta.bad_free_array) > 0 {
       for v in ta.bad_free_array {
@@ -96,9 +114,9 @@ main :: proc() {
       }
     }
 
-    // free_all(context.temp_allocator)
+    free_all(context.temp_allocator)
   }
-  // free_all(context.temp_allocator)
+  free_all(context.temp_allocator)
 
   delete(windows)
 
