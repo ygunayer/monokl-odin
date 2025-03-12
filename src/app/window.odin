@@ -35,6 +35,8 @@ Window :: struct {
   maximized: bool,
   has_focus: bool,
   playlist: ^playlist.Playlist,
+  dropping_files: bool,
+  dropped_files: [dynamic]string,
 }
 
 Window_Error :: union {
@@ -63,14 +65,13 @@ window_init_after :: proc(previous: ^Window) -> (w: ^Window, error: Window_Error
     maximized = false,
   }
 
-  display_id := sdl3.GetDisplayForWindow(previous.wnd^)
-  display_mode := sdl3.GetCurrentDisplayMode(display_id)
-  defer free(display_mode)
+  display_mode := sdl3.GetCurrentDisplayMode(previous.display_id)
 
   x, y, bl, bt, br, bb: i32
   sdl3.GetWindowPosition(previous.wnd, &x, &y)
   sdl3.GetWindowBordersSize(previous.wnd, &bt, &bl, &bb, &br)
 
+  log.debugf("Display Mode: %p > %v", display_mode, display_mode)
   effective_width := display_mode.w - bl - br
   effective_height := display_mode.h - bt - bb
 
@@ -117,7 +118,7 @@ window_init_with_settings :: proc(options: WindowOptions) -> (w: ^Window, error:
   }
 
   window.id = sdl3.GetWindowID(wnd)
-  window.display_id = sdl3.GetDisplayForWindow(wnd^)
+  window.display_id = sdl3.GetDisplayForWindow(wnd)
   window.wnd = wnd
   window.renderer = renderer
   sdl3.GetWindowSize(wnd, &window.size.x, &window.size.y)
@@ -227,26 +228,54 @@ window_load_playlist :: proc(window: ^Window, path: string) -> playlist.Playlist
         case .Resized:
           sdl3.GetWindowSize(window.wnd, &window.size.x, &window.size.y)
 
-        case .Moved:
+        case .Moved: {
           sdl3.GetWindowPosition(window.wnd, &window.position.x, &window.position.y)
+          display_id := sdl3.GetDisplayForWindow(window.wnd)
+          if display_id == 0 {
+            log.warnf("Failed to get display ID for window %d due to %s", window.id, sdl3.GetError())
+          } else {
+            window.display_id = display_id
+          }
+        }
       }
 
-      log.debugf(
-        "Window %d handled window event. New state: has_focus=%v, maximized=%v, size=%v, position:%v",
-        window.id,
-        window.has_focus,
-        window.maximized,
-        window.size,
-        window.position,
-      )
+      // log.debugf(
+      //   "Window %d handled window event. New state: has_focus=%v, maximized=%v, size=%v, position:%v, display_id:%v",
+      //   window.id,
+      //   window.has_focus,
+      //   window.maximized,
+      //   window.size,
+      //   window.position,
+      //   window.display_id,
+      // )
     }
 
     case ActionEvent: {
       if e.window_id != window.id {
         return
       }
+    }
 
+    case DropEvent: {
+      switch de in e {
+        case DropEvent_Begin:
+          window.dropping_files = true
 
+        case DropEvent_DropFile: {
+          if window.dropping_files {
+            append(&window.dropped_files, de.file)
+          }
+        }
+
+        case DropEvent_End: {
+          if window.dropping_files {
+            window.dropping_files = false
+            log.infof("Dropped files: %v", window.dropped_files)
+            clear(&window.dropped_files)
+          }
+        }
+
+      }
     }
   }
 

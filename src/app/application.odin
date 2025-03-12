@@ -8,7 +8,7 @@ import "vendor:sdl3"
 Application :: struct {
   windows: map[WindowId]^Window,
   action_mappings: []ActionMapping,
-  window_focus_stack: WindowIdStack,
+  window_stack: Stack,
 }
 
 Application_InitError :: struct {
@@ -36,7 +36,7 @@ application_init :: proc(app: ^Application) -> Application_Error {
   return nil
 }
 
-application_create_window :: proc(app: ^Application) -> (w: ^Window, err: Window_Error) {
+ application_create_window :: proc(app: ^Application) -> (w: ^Window, err: Window_Error) {
   window, e := window_init_after(application_get_last_focused_window(app))
   if e != nil {
     return nil, e
@@ -48,9 +48,9 @@ application_create_window :: proc(app: ^Application) -> (w: ^Window, err: Window
 }
 
 application_get_last_focused_window :: proc(app: ^Application) -> ^Window {
-  id, ok := window_id_stack_peek(&app.window_focus_stack)
+  id, found := stack_peek(&app.window_stack)
 
-  if !ok {
+  if !found {
     return nil
   }
 
@@ -66,7 +66,7 @@ application_close_window :: proc(app: ^Application, window_id: WindowId) {
     return
   }
 
-  window_id_stack_delete(&app.window_focus_stack, window_id)
+  stack_delete(&app.window_stack, window_id)
 
   window := app.windows[window_id]
   window_destroy(window)
@@ -89,7 +89,7 @@ application_handle_event :: proc(app: ^Application, event: sdl3.Event) {
           window_handle_event(window, e)
 
           if e.type == .GainedFocus {
-            window_id_stack_push(&app.window_focus_stack, window.id)
+            stack_push(&app.window_stack, window.id)
           }
         }
       }
@@ -142,8 +142,6 @@ application_destroy :: proc(app: ^Application) {
   if app == nil {
     return
   }
-
-  window_id_stack_destroy(&app.window_focus_stack)
 
   for _, wnd in app.windows {
     window_destroy(wnd)

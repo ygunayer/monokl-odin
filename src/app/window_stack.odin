@@ -4,90 +4,78 @@ import "core:log"
 
 CAPACITY :: 64
 
-WindowIdStack :: struct {
-  items: []WindowId,
+Stack :: struct {
+  items: [CAPACITY]WindowId,
   size: u32,
-  next_idx: u32,
 }
 
-window_id_stack_destroy :: proc(stack: ^WindowIdStack) {
-  if stack == nil {
-    return
-  }
-
-  free(&stack.items)
-}
-
-window_id_stack_find_index :: proc(stack: ^WindowIdStack, id: WindowId) -> (idx: int, ok: bool) {
-  for item, idx in stack.items {
-    if item == id {
+stack_find_index :: proc(stack: ^Stack, id: WindowId) -> (idx: u32, found: bool) {
+  for i in 0..<stack.size {
+    if stack.items[i] == id {
       return idx, true
     }
   }
-  return -1, false
+  return 0, false
 }
 
-window_id_stack_is_empty :: proc(stack: ^WindowIdStack) -> bool {
-  return stack.size == 0
-}
-
-window_id_stack_is_full :: proc(stack: ^WindowIdStack) -> bool {
+stack_is_full :: proc(stack: ^Stack) -> bool {
   return stack.size == CAPACITY
 }
 
-window_id_stack_push :: proc(stack: ^WindowIdStack, id: WindowId) {
-  prev_idx, found := window_id_stack_find_index(stack, id)
-
-  if !found {
-    if window_id_stack_is_full(stack) {
-      for i := 0; i < int(stack.size) - 2; i += 1 {
-        stack.items[i] = stack.items[i + 1]
-      }
-
-      stack_items
-    }
-  }
-
-  if found {
-    for i := prev_idx; i > 0; i -= 1 {
-      stack.items[i] = stack.items[i - 1]
-    }
-    stack.items[0] = id
-  } else {
-    if window_id_stack_is_full(stack) {
-      for i := CAPACITY - 1; i > 0; i -= 1 {
-        stack.items[i] = stack.items[i - 1]
-      }
-      stack.items[0] = id
-    } else {
-      for i := stack.size; i > 0; i -= 1 {
-        stack.items[i] = stack.items[i - 1]
-      }
-      stack.items[0] = id
-      stack.size += 1
-    }
-  }
-
-  log.debugf("Stack: %v", stack)
+stack_is_empty :: proc(stack: ^Stack) -> bool {
+  return stack.size == 0
 }
 
-window_id_stack_peek :: proc(stack: ^WindowIdStack) -> (id: WindowId, ok: bool) {
-  if window_id_stack_is_empty(stack) {
+stack_peek :: proc(stack: ^Stack) -> (id: WindowId, found: bool) {
+  if stack.size == 0 {
     return 0, false
   }
 
   return stack.items[0], true
 }
 
-window_id_stack_delete :: proc(stack: ^WindowIdStack, id: WindowId) {
-  prev_idx, found := window_id_stack_find_index(stack, id)
+stack_push :: proc(stack: ^Stack, id: WindowId) {
+  idx, found := stack_find_index(stack, id)
+
   if !found {
-    return
+    if stack_is_full(stack) {
+      for i in 1..<stack.size {
+        stack.items[i] = stack.items[i - 1]
+      }
+    } else if stack_is_empty(stack) {
+      stack.size += 1
+    } else {
+      for i in 0..<stack.size {
+        stack.items[i + 1] = stack.items[i]
+      }
+      stack.size += 1
+    }
+  } else {
+    for i in 1..=idx {
+      stack.items[i] = stack.items[i - 1]
+    }
+
+    stack.size += 1
   }
 
-  for i := prev_idx; i < int(stack.size) - 1; i += 1 {
+  stack.items[0] = id
+}
+
+stack_delete :: proc(stack: ^Stack, id: WindowId) -> bool {
+  idx, found := stack_find_index(stack, id)
+  if !found {
+    return false
+  }
+
+  // 14, 25, 51, 68, 73 // size=5
+  // remove: 51 // idx=2
+  // 14, 25, 68, 73 
+
+  // 2, 3
+  for i in idx..<(stack.size-1) {
     stack.items[i] = stack.items[i + 1]
   }
+  stack.items[stack.size - 1] = 0
   stack.size -= 1
-  log.debugf("Stack: %v", stack)
+  return true
 }

@@ -22,9 +22,22 @@ ActionEvent :: struct {
   action: Action,
 }
 
+DropEvent_Begin :: struct {}
+DropEvent_End :: struct {}
+DropEvent_DropFile :: struct {
+  file: string,
+}
+
+DropEvent :: union {
+  DropEvent_Begin,
+  DropEvent_End,
+  DropEvent_DropFile,
+}
+
 Event :: union {
   ActionEvent,
   WindowEvent,
+  DropEvent,
 }
 
 event_translate :: proc(event: sdl.Event, mappings: []ActionMapping) -> Maybe(Event) {
@@ -70,6 +83,12 @@ event_translate :: proc(event: sdl.Event, mappings: []ActionMapping) -> Maybe(Ev
         type = .Moved,
         window_id = event.window.windowID,
       }
+
+    case .DROP_BEGIN:
+      return (DropEvent)(DropEvent_Begin{})
+
+    case .DROP_COMPLETE:
+      return (DropEvent)(DropEvent_End{})
 
     case .KEY_DOWN: {
       for mapping in mappings {

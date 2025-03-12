@@ -24,7 +24,10 @@
 			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
 			"windows": {
 				"cmd": ["build.bat", "run", "-d"],
-			}
+			},
+			"linux": {
+				"cmd": ["./build.sh", "run", "-d"],
+			},
 		},
 		{
 			"name": "Odin - Build Debug",
@@ -33,7 +36,22 @@
 			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
 			"windows": {
 				"cmd": ["build.bat", "build", "-d"],
-			}
+			},
+			"linux": {
+				"cmd": ["./build.sh", "build", "-d"],
+			},
 		},
+	],
+	"debugger_configurations":
+	[
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Launch Compiled Binary",
+			"program": "${project_path}/bin/monokl",
+			"args": [],
+			"cwd": "${project_path}",
+			"terminal": "console"
+		}
 	],
 }
