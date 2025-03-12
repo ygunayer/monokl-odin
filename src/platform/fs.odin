@@ -1,4 +1,4 @@
-package util
+package platform
 
 import "core:os"
 import "core:crypto"

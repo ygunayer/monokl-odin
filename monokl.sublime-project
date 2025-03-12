@@ -19,12 +19,17 @@
 	[
 		{
 			"name": "Odin - Run Debug",
+			"selector": "source.odin",
+			"working_dir": "${project_path}",
+			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
 			"windows": {
 				"cmd": ["build.bat", "run", "-d"],
 			}
 		},
 		{
 			"name": "Odin - Build Debug",
+			"selector": "source.odin",
+			"working_dir": "${project_path}",
 			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
 			"windows": {
 				"cmd": ["build.bat", "build", "-d"],

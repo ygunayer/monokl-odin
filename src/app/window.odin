@@ -1,34 +1,39 @@
 package app
 
 import "core:strings"
-import sdl "vendor:sdl3"
+import "vendor:sdl3"
 import "core:mem"
+import "core:log"
+import "core:fmt"
 
 import "../playlist"
 
 Vector2 :: distinct [2]i32
-WindowId :: sdl.WindowID
+WindowId :: sdl3.WindowID
+DisplayId :: sdl3.DisplayID
 
 WindowSize_Default :: (Vector2) { 1366, 768 }
 
-WindowPosition_Undefined :: (Vector2) { sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED }
-WindowPosition_Centered :: (Vector2) { sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED }
+WindowPosition_Undefined :: (Vector2) { sdl3.WINDOWPOS_UNDEFINED, sdl3.WINDOWPOS_UNDEFINED }
+WindowPosition_Centered :: (Vector2) { sdl3.WINDOWPOS_CENTERED, sdl3.WINDOWPOS_CENTERED }
 
-WindowSettings :: struct {
-  title: cstring,
+Color_Background := sdl3.FColor { .192, .192, .192, 1.0 }
+
+WindowOptions :: struct {
   initial_position: Vector2,
   initial_size: Vector2,
   maximized: bool,
 }
 
 Window :: struct {
-  id: sdl.WindowID,
-  display_id: sdl.DisplayID,
-  renderer: ^sdl.Renderer,
-  wnd: ^sdl.Window,
+  id: sdl3.WindowID,
+  display_id: sdl3.DisplayID,
+  renderer: ^sdl3.Renderer,
+  wnd: ^sdl3.Window,
   size: Vector2,
   position: Vector2,
-  handler_id: HandlerId,
+  maximized: bool,
+  has_focus: bool,
   playlist: ^playlist.Playlist,
 }
 
@@ -38,84 +43,211 @@ Window_Error :: union {
   playlist.Playlist_Error,
 }
 
-window_init :: proc(settings: WindowSettings, bus: ^EventBus, allocator := context.allocator) -> (w: ^Window, error: Window_Error) {
-  flags := sdl.WINDOW_RESIZABLE
+window_init_from_scratch :: proc() -> (w: ^Window, error: Window_Error) {
+  options := WindowOptions {
+    initial_position = WindowPosition_Centered,
+    initial_size = WindowSize_Default,
+    maximized = false,
+  }
+  return window_init_with_settings(options)
+}
 
-  if settings.maximized {
-    flags |= sdl.WINDOW_MAXIMIZED
+window_init_after :: proc(previous: ^Window) -> (w: ^Window, error: Window_Error) {
+  if previous == nil || previous.wnd == nil {
+    return window_init_from_scratch()
   }
 
-  wnd: ^sdl.Window
-  renderer: ^sdl.Renderer
-  sdl.CreateWindowAndRenderer(
-    settings.title,
-    settings.initial_size.x,
-    settings.initial_size.y,
-    sdl.WINDOW_RESIZABLE,
+  options := WindowOptions {
+    initial_position = WindowPosition_Centered,
+    initial_size = WindowSize_Default,
+    maximized = false,
+  }
+
+  display_id := sdl3.GetDisplayForWindow(previous.wnd^)
+  display_mode := sdl3.GetCurrentDisplayMode(display_id)
+  defer free(display_mode)
+
+  x, y, bl, bt, br, bb: i32
+  sdl3.GetWindowPosition(previous.wnd, &x, &y)
+  sdl3.GetWindowBordersSize(previous.wnd, &bt, &bl, &bb, &br)
+
+  effective_width := display_mode.w - bl - br
+  effective_height := display_mode.h - bt - bb
+
+  x += 30 if bl < 30 else bl
+  y += 30 if bt < 30 else bt
+
+  if ((x + options.initial_size.x) >= effective_width) || ((y + options.initial_size.y) >= effective_height) {
+    x = bl
+    y = bt
+  }
+
+  options.initial_position = Vector2 { x, y }
+
+  return window_init_with_settings(options)
+}
+
+window_init_with_settings :: proc(options: WindowOptions) -> (w: ^Window, error: Window_Error) {
+  flags := sdl3.WINDOW_RESIZABLE
+
+  if options.maximized {
+    flags |= sdl3.WINDOW_MAXIMIZED
+  }
+
+  wnd: ^sdl3.Window
+  renderer: ^sdl3.Renderer
+  sdl3.CreateWindowAndRenderer(
+    cstring("monokl"),
+    options.initial_size.x,
+    options.initial_size.y,
+    sdl3.WINDOW_RESIZABLE,
     &wnd,
     &renderer,
   )
 
   if wnd == nil || renderer == nil {
-    return nil, make_sdl_error(sdl.GetError())
+    return nil, make_sdl_error(sdl3.GetError())
   }
 
-  window := new(Window, allocator)
+  window := new(Window)
   if window == nil {
-    defer sdl.DestroyRenderer(renderer)
-    defer sdl.DestroyWindow(wnd)
+    defer sdl3.DestroyRenderer(renderer)
+    defer sdl3.DestroyWindow(wnd)
     return nil, mem.Allocator_Error.Out_Of_Memory
   }
 
-  window.id = sdl.GetWindowID(wnd)
-  window.display_id = sdl.GetDisplayForWindow(wnd^)
+  window.id = sdl3.GetWindowID(wnd)
+  window.display_id = sdl3.GetDisplayForWindow(wnd^)
   window.wnd = wnd
-  sdl.GetWindowSize(wnd, &window.size.x, &window.size.y)
-  sdl.GetWindowPosition(wnd, &window.position.x, &window.position.y)
+  window.renderer = renderer
+  sdl3.GetWindowSize(wnd, &window.size.x, &window.size.y)
+  sdl3.GetWindowPosition(wnd, &window.position.x, &window.position.y)
 
   return window, nil
 }
 
-window_destroy :: proc(window: ^Window, allocator := context.allocator) {
+window_init :: proc {
+  window_init_from_scratch,
+  window_init_after,
+  window_init_with_settings,
+}
+
+window_destroy :: proc(window: ^Window) {
   window_unload_playlist(window)
 
   if window.renderer != nil {
-    sdl.DestroyRenderer(window.renderer)
+    sdl3.DestroyRenderer(window.renderer)
     window.renderer = nil
   }
 
   if window.wnd != nil {
-    sdl.DestroyWindow(window.wnd)
+    sdl3.DestroyWindow(window.wnd)
     window.wnd = nil
   }
 
-  free(window, allocator)
+  free(window)
+}
+
+window_update_title :: proc(window: ^Window) {
+  if window == nil {
+    return
+  }
+
+  if window.playlist == nil {
+    sdl3.SetWindowTitle(window.wnd, "monokl")
+    return
+  }
+
+  item := playlist.playlist_get_current_entry(window.playlist)
+  if item == nil {
+    sdl3.SetWindowTitle(window.wnd, "monokl - No images")
+    return
+  }
+
+  title_string := strings.clone_to_cstring(fmt.tprintf(
+    "monokl - %s%d/%d - %s",
+    "♥" if item.is_favorited else "",
+    window.playlist.current_index + 1,
+    window.playlist.entry_count,
+    item.filename,
+  ), allocator = context.temp_allocator)
+
+  sdl3.SetWindowTitle(window.wnd, title_string)
 }
 
 window_render :: proc(window: ^Window) {
-  color: sdl.FColor = {.3, .4, .4, 1}
-  sdl.SetRenderDrawColorFloat(window.renderer, color.r, color.g, color.b, color.a)
-  sdl.RenderClear(window.renderer)
-  sdl.RenderPresent(window.renderer)
+  window_update_title(window)
+
+  sdl3.SetRenderDrawColorFloat(window.renderer, Color_Background.r, Color_Background.g, Color_Background.b, Color_Background.a)
+  sdl3.RenderClear(window.renderer)
+  sdl3.RenderPresent(window.renderer)
 }
 
-window_unload_playlist :: proc(window: ^Window, allocator := context.allocator) {
+window_unload_playlist :: proc(window: ^Window) {
   if window.playlist != nil {
-    playlist.playlist_destroy(window.playlist, allocator)
+    playlist.playlist_destroy(window.playlist)
     window.playlist = nil
   }
 }
 
-window_load_playlist :: proc(window: ^Window, path: string, allocator := context.allocator) -> playlist.Playlist_Error {
-  pl := new(playlist.Playlist, allocator)
+window_load_playlist :: proc(window: ^Window, path: string) -> playlist.Playlist_Error {
+  pl := new(playlist.Playlist)
 
-  err := playlist.playlist_open(pl, path, allocator)
+  err := playlist.playlist_open(pl, path)
   if err != nil {
-    free(pl, allocator)
+    free(pl)
     return err
   }
 
   window_unload_playlist(window)
   window.playlist = pl
   return nil
+}
+
+ window_handle_event :: proc(window: ^Window, event: Event) {
+  switch e in event {
+    case WindowEvent: {
+      if e.window_id != window.id {
+        return
+      }
+
+      switch e.type {
+        case .Maximized:
+          window.maximized = true;
+
+        case .Minimized, .Restored:
+          window.maximized = false;
+
+        case .GainedFocus:
+          window.has_focus = true;
+
+        case .LostFocus:
+          window.has_focus = false;
+
+        case .Resized:
+          sdl3.GetWindowSize(window.wnd, &window.size.x, &window.size.y)
+
+        case .Moved:
+          sdl3.GetWindowPosition(window.wnd, &window.position.x, &window.position.y)
+      }
+
+      log.debugf(
+        "Window %d handled window event. New state: has_focus=%v, maximized=%v, size=%v, position:%v",
+        window.id,
+        window.has_focus,
+        window.maximized,
+        window.size,
+        window.position,
+      )
+    }
+
+    case ActionEvent: {
+      if e.window_id != window.id {
+        return
+      }
+
+
+    }
+  }
+
 }

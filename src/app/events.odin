@@ -2,93 +2,32 @@ package app
 
 import sdl "vendor:sdl3"
 
-BaseEvent :: struct {
-  window_id: WindowId,
-}
-
 WindowEventType :: enum {
-  Created,
-  GainedFocus,
-  LostFocus,
-  Resized,
-  CloseRequested,
   Maximized,
   Minimized,
   Restored,
+  GainedFocus,
+  LostFocus,
+  Resized,
+  Moved,
 }
 
 WindowEvent :: struct {
-  using event: BaseEvent,
+  window_id: WindowId,
   type: WindowEventType,
 }
 
 ActionEvent :: struct {
-  using event: BaseEvent,
+  window_id: WindowId,
   action: Action,
 }
 
 Event :: union {
+  ActionEvent,
   WindowEvent,
 }
 
-EventHandler :: ^proc(event: Event)
-HandlerId :: distinct u32
-
-EventBus :: struct {
-  next_id: HandlerId,
-  handlers: map[HandlerId]EventHandler,
-}
-
-event_bus_init :: proc(allocator := context.allocator) -> EventBus {
-  bus: EventBus
-  bus.next_id = 1
-  bus.handlers = make(map[HandlerId]EventHandler, allocator)
-  return bus
-}
-
-event_bus_subscribe :: proc(bus: ^EventBus, handler: EventHandler) -> HandlerId {
-  assert(bus != nil, "nil bus instance passed to function")
-  assert(handler != nil, "nil handler instance passed to function")
-  id := bus.next_id
-  bus.handlers[id] = handler
-  bus.next_id += 1
-  return id
-}
-
-event_bus_unsubscribe :: proc(bus: ^EventBus, id: HandlerId) {
-  assert(bus != nil, "nil bus instance passed to function")
-  if id in bus.handlers {
-    delete_key(&bus.handlers, id)
-  }
-}
-
-event_bus_publish :: proc(bus: ^EventBus, event: Event) {
-  invalid_ids: [dynamic]HandlerId
-  for id, handler in bus.handlers {
-    if handler != nil {
-      handler^(event)
-    } else {
-      append(&invalid_ids, id)
-    }
-  }
-  if len(invalid_ids) > 0 {
-    for id in invalid_ids {
-      delete_key(&bus.handlers, id)
-    }
-  }
-}
-
-event_bus_destroy :: proc(bus: ^EventBus) {
-  if bus == nil {
-    return
-  }
-
-  delete(bus.handlers)
-  bus.handlers = nil
-  bus.next_id = 0
-}
-
-event_bus_translate :: proc(event: ^sdl.Event) -> Maybe(Event) {
+event_translate :: proc(event: sdl.Event, mappings: []ActionMapping) -> Maybe(Event) {
   #partial switch event.type {
     case .WINDOW_MAXIMIZED:
       return (WindowEvent) {
@@ -96,11 +35,54 @@ event_bus_translate :: proc(event: ^sdl.Event) -> Maybe(Event) {
         window_id = event.window.windowID,
       }
 
-    case .WINDOW_CLOSE_REQUESTED:
+    case .WINDOW_MINIMIZED:
       return (WindowEvent) {
-        type = .CloseRequested,
+        type = .Minimized,
         window_id = event.window.windowID,
       }
+
+    case .WINDOW_RESTORED:
+      return (WindowEvent) {
+        type = .Restored,
+        window_id = event.window.windowID,
+      }
+
+    case .WINDOW_FOCUS_LOST:
+      return (WindowEvent) {
+        type = .LostFocus,
+        window_id = event.window.windowID,
+      }
+
+    case .WINDOW_FOCUS_GAINED:
+      return (WindowEvent) {
+        type = .GainedFocus,
+        window_id = event.window.windowID,
+      }
+
+    case .WINDOW_RESIZED:
+      return (WindowEvent) {
+        type = .Resized,
+        window_id = event.window.windowID,
+      }
+
+    case .WINDOW_MOVED:
+      return (WindowEvent) {
+        type = .Moved,
+        window_id = event.window.windowID,
+      }
+
+    case .KEY_DOWN: {
+      for mapping in mappings {
+        if action_mapping_matches_event(mapping, event) {
+          return (ActionEvent) {
+            action = Action {
+              type = mapping.type,
+            },
+            window_id = event.window.windowID,
+          }
+        }
+      }
+    }
   }
   return nil
 }
