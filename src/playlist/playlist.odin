@@ -29,7 +29,6 @@ ImageInfo :: struct {
 PlaylistEntry :: struct {
   is_favorited: bool,
   is_hidden: bool,
-  is_excluded: bool,
   last_modified: time.Time,
   image_info: ImageInfo,
   filename: string,
@@ -60,6 +59,11 @@ Playlist_Error :: union {
   io.Error,
   os.Error,
   runtime.Allocator_Error,
+}
+
+playlist_init :: proc(playlist: ^Playlist) {
+  playlist.entries = make([dynamic]^PlaylistEntry)
+  playlist.shown_entries = playlist.entries[:]
 }
 
 playlist_entry_compare_names :: proc(a: ^PlaylistEntry, b: ^PlaylistEntry) -> bool {
@@ -185,10 +189,6 @@ playlist_refresh_shown_entries :: proc(playlist: ^Playlist) {
 
   new_entries := make_dynamic_array([dynamic]^PlaylistEntry, context.temp_allocator)
   for entry in playlist.entries {
-    if playlist.options.skip_excluded && entry.is_excluded {
-      continue
-    }
-
     if playlist.options.skip_hidden && entry.is_hidden {
       continue
     }
@@ -244,11 +244,34 @@ playlist_get_current_entry :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
 }
 
 playlist_advance :: proc(playlist: ^Playlist, by: int) -> ^PlaylistEntry {
+  if len(playlist.shown_entries) < 1 {
+    return nil
+  }
+
   playlist.current_index += by
   if playlist.current_index < 0 {
     playlist.current_index = playlist.entry_count + by
   } else if playlist.current_index > playlist.entry_count {
     playlist.current_index = playlist.current_index % playlist.entry_count
   }
+  return playlist.shown_entries[playlist.current_index]
+}
+
+playlist_go_to_first :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
+  if len(playlist.shown_entries) < 1 {
+    return nil
+  }
+
+  playlist.current_index = 0
+  return playlist.shown_entries[playlist.current_index]
+}
+
+playlist_go_to_last :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
+  num_entries := len(playlist.shown_entries)
+  if num_entries < 1 {
+    return nil
+  }
+
+  playlist.current_index = num_entries - 1
   return playlist.shown_entries[playlist.current_index]
 }

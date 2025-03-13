@@ -23,7 +23,7 @@ Application_Error :: union {
 application_init :: proc(app: ^Application) -> Application_Error {
   app.windows = make(map[WindowId]^Window)
 
-  action_mappings := get_action_mappings()
+  action_mappings := get_default_action_mappings()
   app.action_mappings = action_mappings[:]
 
   init_success := sdl3.Init(sdl3.INIT_VIDEO)
@@ -101,6 +101,18 @@ application_handle_event :: proc(app: ^Application, event: sdl3.Event) {
 
         if e.action.type == .OpenNewWindow {
           application_create_window(app)
+        }
+
+        if e.window_id in app.windows {
+          window := app.windows[e.window_id]
+          window_handle_event(window, e)
+        }
+      }
+
+      case DropEvent: {
+        if e.window_id in app.windows {
+          window := app.windows[e.window_id]
+          window_handle_event(window, e)
         }
       }
     }

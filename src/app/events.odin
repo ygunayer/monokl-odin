@@ -1,6 +1,6 @@
 package app
 
-import sdl "vendor:sdl3"
+import "vendor:sdl3"
 
 WindowEventType :: enum {
   Maximized,
@@ -10,6 +10,12 @@ WindowEventType :: enum {
   LostFocus,
   Resized,
   Moved,
+}
+
+DropEventType :: enum {
+  Begin,
+  DropFile,
+  End,
 }
 
 WindowEvent :: struct {
@@ -22,16 +28,10 @@ ActionEvent :: struct {
   action: Action,
 }
 
-DropEvent_Begin :: struct {}
-DropEvent_End :: struct {}
-DropEvent_DropFile :: struct {
+DropEvent :: struct {
+  window_id: WindowId,
+  type: DropEventType,
   file: string,
-}
-
-DropEvent :: union {
-  DropEvent_Begin,
-  DropEvent_End,
-  DropEvent_DropFile,
 }
 
 Event :: union {
@@ -40,55 +40,68 @@ Event :: union {
   DropEvent,
 }
 
-event_translate :: proc(event: sdl.Event, mappings: []ActionMapping) -> Maybe(Event) {
+event_translate :: proc(event: sdl3.Event, mappings: []ActionMapping) -> Maybe(Event) {
   #partial switch event.type {
     case .WINDOW_MAXIMIZED:
-      return (WindowEvent) {
-        type = .Maximized,
+      return WindowEvent {
         window_id = event.window.windowID,
+        type = .Maximized,
       }
 
     case .WINDOW_MINIMIZED:
-      return (WindowEvent) {
-        type = .Minimized,
+      return WindowEvent {
         window_id = event.window.windowID,
+        type = .Minimized,
       }
 
     case .WINDOW_RESTORED:
-      return (WindowEvent) {
-        type = .Restored,
+      return WindowEvent {
         window_id = event.window.windowID,
+        type = .Restored,
       }
 
     case .WINDOW_FOCUS_LOST:
-      return (WindowEvent) {
-        type = .LostFocus,
+      return WindowEvent {
         window_id = event.window.windowID,
+        type = .LostFocus,
       }
 
     case .WINDOW_FOCUS_GAINED:
-      return (WindowEvent) {
-        type = .GainedFocus,
+      return WindowEvent {
         window_id = event.window.windowID,
+        type = .GainedFocus,
       }
 
     case .WINDOW_RESIZED:
-      return (WindowEvent) {
-        type = .Resized,
+      return WindowEvent {
         window_id = event.window.windowID,
+        type = .Resized,
       }
 
     case .WINDOW_MOVED:
-      return (WindowEvent) {
-        type = .Moved,
+      return WindowEvent {
         window_id = event.window.windowID,
+        type = .Moved,
       }
 
     case .DROP_BEGIN:
-      return (DropEvent)(DropEvent_Begin{})
+      return DropEvent {
+        window_id = event.drop.windowID,
+        type = .Begin,
+      }
 
     case .DROP_COMPLETE:
-      return (DropEvent)(DropEvent_End{})
+      return DropEvent {
+        window_id = event.drop.windowID,
+        type = .End,
+      }
+
+    case .DROP_FILE:
+      return DropEvent {
+        window_id = event.drop.windowID,
+        type = .DropFile,
+        file = string(event.drop.data),
+      }
 
     case .KEY_DOWN: {
       for mapping in mappings {

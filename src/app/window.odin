@@ -67,13 +67,15 @@ window_init_after :: proc(previous: ^Window) -> (w: ^Window, error: Window_Error
 
   display_mode := sdl3.GetCurrentDisplayMode(previous.display_id)
 
-  x, y, bl, bt, br, bb: i32
-  sdl3.GetWindowPosition(previous.wnd, &x, &y)
+  bl, bt, br, bb: i32
   sdl3.GetWindowBordersSize(previous.wnd, &bt, &bl, &bb, &br)
 
   log.debugf("Display Mode: %p > %v", display_mode, display_mode)
   effective_width := display_mode.w - bl - br
   effective_height := display_mode.h - bt - bb
+
+  x := previous.position.x
+  y := previous.position.y
 
   x += 30 if bl < 30 else bl
   y += 30 if bt < 30 else bt
@@ -121,6 +123,11 @@ window_init_with_settings :: proc(options: WindowOptions) -> (w: ^Window, error:
   window.display_id = sdl3.GetDisplayForWindow(wnd)
   window.wnd = wnd
   window.renderer = renderer
+  sdl3.SetWindowPosition(wnd, options.initial_position.x, options.initial_position.y)
+
+  window.playlist = new(playlist.Playlist)
+  playlist.playlist_init(window.playlist)
+
   sdl3.GetWindowSize(wnd, &window.size.x, &window.size.y)
   sdl3.GetWindowPosition(wnd, &window.position.x, &window.position.y)
 
@@ -135,6 +142,8 @@ window_init :: proc {
 
 window_destroy :: proc(window: ^Window) {
   window_unload_playlist(window)
+
+  delete(window.dropped_files)
 
   if window.renderer != nil {
     sdl3.DestroyRenderer(window.renderer)
@@ -192,6 +201,8 @@ window_unload_playlist :: proc(window: ^Window) {
 }
 
 window_load_playlist :: proc(window: ^Window, path: string) -> playlist.Playlist_Error {
+  window_unload_playlist(window)
+
   pl := new(playlist.Playlist)
 
   err := playlist.playlist_open(pl, path)
@@ -254,23 +265,41 @@ window_load_playlist :: proc(window: ^Window, path: string) -> playlist.Playlist
       if e.window_id != window.id {
         return
       }
+
+      #partial switch e.action.type {
+        case .GoToNext:
+          playlist.playlist_advance(window.playlist, 1)
+
+        case .GoToPrevious:
+          playlist.playlist_advance(window.playlist, -1)
+
+        case .GoToFirst:
+          playlist.playlist_go_to_first(window.playlist)
+
+        case .GoToLast:
+          playlist.playlist_go_to_last(window.playlist)
+      }
     }
 
     case DropEvent: {
-      switch de in e {
-        case DropEvent_Begin:
+      switch e.type {
+        case .Begin: {
           window.dropping_files = true
+          clear(&window.dropped_files)
+        }
 
-        case DropEvent_DropFile: {
+        case .DropFile: {
           if window.dropping_files {
-            append(&window.dropped_files, de.file)
+            append(&window.dropped_files, e.file)
           }
         }
 
-        case DropEvent_End: {
+        case .End: {
           if window.dropping_files {
             window.dropping_files = false
-            log.infof("Dropped files: %v", window.dropped_files)
+            if len(window.dropped_files) > 0 {
+              window_load_playlist(window, window.dropped_files[0])
+            }
             clear(&window.dropped_files)
           }
         }

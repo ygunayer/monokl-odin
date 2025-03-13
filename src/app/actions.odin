@@ -10,8 +10,8 @@ ActionType :: enum {
   CloseWindow,
   MaximizeWindow,
   MinimizeWindow,
-  Open,
-  ToggleFavorite,
+  Favorite,
+  Unfavorite,
   ToggleOnlyFavorites,
   GoToNext,
   GoToPrevious,
@@ -68,4 +68,29 @@ action_mapping_matches_event :: proc(mapping: ActionMapping, event: sdl3.Event) 
   }
 
   return false
+}
+
+get_default_action_mappings :: proc(allocator := context.allocator) -> [dynamic]ActionMapping {
+  mappings := make([dynamic]ActionMapping, allocator)
+
+  when ODIN_OS == .Darwin {
+    append(&mappings, ActionMapping{ type = .OpenNewWindow, trigger = KeyboardActionTrigger { key = sdl3.K_N, meta = true } })
+    append(&mappings, ActionMapping{ type = .CloseWindow, trigger = KeyboardActionTrigger { key = sdl3.K_W, meta = true } })
+  } else {
+    append(&mappings, ActionMapping{ type = .OpenNewWindow, trigger = KeyboardActionTrigger { key = sdl3.K_N, ctrl = true } })
+    append(&mappings, ActionMapping{ type = .CloseWindow, trigger = KeyboardActionTrigger { key = sdl3.K_W, ctrl = true } })
+  }
+
+  append(&mappings, ActionMapping{ type = .GoToNext, trigger = KeyboardActionTrigger { key = sdl3.K_RIGHT } })
+  append(&mappings, ActionMapping{ type = .GoToPrevious, trigger = KeyboardActionTrigger { key = sdl3.K_LEFT } })
+  append(&mappings, ActionMapping{ type = .GoToFirst, trigger = KeyboardActionTrigger { key = sdl3.K_HOME } })
+  append(&mappings, ActionMapping{ type = .GoToLast, trigger = KeyboardActionTrigger { key = sdl3.K_END } })
+  append(&mappings, ActionMapping{ type = .ResetZoom, trigger = KeyboardActionTrigger { key = sdl3.K_KP_0 } })
+  append(&mappings, ActionMapping{ type = .ZoomIn, trigger = KeyboardActionTrigger { key = sdl3.K_KP_PLUS } })
+  append(&mappings, ActionMapping{ type = .ZoomOut, trigger = KeyboardActionTrigger { key = sdl3.K_KP_MINUS } })
+  append(&mappings, ActionMapping{ type = .Favorite, trigger = KeyboardActionTrigger { key = sdl3.K_F } })
+  append(&mappings, ActionMapping{ type = .Unfavorite, trigger = KeyboardActionTrigger { key = sdl3.K_F, alt = true } })
+  append(&mappings, ActionMapping{ type = .ToggleOnlyFavorites, trigger = KeyboardActionTrigger { key = sdl3.K_F, shift = true } })
+
+  return mappings
 }

@@ -45,13 +45,17 @@
 	"debugger_configurations":
 	[
 		{
+			"name": "Launch Compiled Binary",
 			"type": "lldb",
 			"request": "launch",
-			"name": "Launch Compiled Binary",
-			"program": "${project_path}/bin/monokl",
-			"args": [],
 			"cwd": "${project_path}",
-			"terminal": "console"
+			"terminal": "console",
+			"windows": {
+				"program": "${project_path}/bin/monokl.exe"
+			},
+			"linux": {
+				"program": "${project_path}/bin/monokl"
+			}
 		}
 	],
 }
