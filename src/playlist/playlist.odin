@@ -10,15 +10,9 @@ import "core:bytes"
 import "core:slice"
 import "base:runtime"
 import "core:encoding/json"
+import "../platform"
 import stbi "vendor:stb/image"
-
-SUPPORTED_EXTENSIONS :: [?]string{
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".bmp",
-  ".gif",
-}
+import "vendor:sdl3"
 
 ImageInfo :: struct {
   width: i32,
@@ -29,9 +23,11 @@ ImageInfo :: struct {
 PlaylistEntry :: struct {
   is_favorited: bool,
   is_hidden: bool,
-  last_modified: time.Time,
-  image_info: ImageInfo,
+  is_supported: bool,
+  full_path: string,
   filename: string,
+  extension: string,
+  last_modified: time.Time,
 }
 
 Playlist :: struct {
@@ -41,6 +37,7 @@ Playlist :: struct {
   current_index: int,
   entry_count: int,
   options: PlaylistOptions,
+  favorites: []string,
 }
 
 Playlist_OptionsError :: union #shared_nil {
@@ -75,61 +72,41 @@ playlist_entry_compare_last_modified_dates :: proc(a: ^PlaylistEntry, b: ^Playli
   return diff < 0
 }
 
-playlist_try_read_entry :: proc (playlist: ^Playlist, info: os.File_Info) -> (ok: bool, error: Playlist_Error) {
+playlist_try_read_entry :: proc(playlist: ^Playlist, info: os.File_Info) -> (ok: bool, error: Playlist_Error) {
   w, h, c: i32
 
-  cpath := strings.clone_to_cstring(info.fullpath, context.temp_allocator)
-
-  is_image := stbi.info(cpath, &w, &h, &c)
-  if is_image == 0 {
-    clean_path := filepath.clean(info.fullpath) or_return
-    defer delete(clean_path)
-    return false, Playlist_ImageLoadingError { path = clean_path, message = string(stbi.failure_reason()) }
-  }
-
-  is_hidden := false
-
-  when ODIN_OS == .Windows {
-
-  } else {
-    is_hidden = info.name[0] == '.'
-  }
-
   entry := new(PlaylistEntry)
+  entry.full_path = strings.clone(info.fullpath)
   entry.filename = strings.clone(info.name)
   entry.last_modified = info.modification_time
-  entry.is_favorited = false // TODO
-  entry.is_hidden = false // TODO
+  entry.is_favorited = false
+  entry.is_supported = is_supported_file(info)
+  entry.is_hidden = platform.is_file_hidden(info)
+
+  for fav in playlist.favorites {
+    if info.name == fav {
+      entry.is_favorited = true
+      break
+    }
+  }
 
   append(&playlist.entries, entry)
 
   return false, nil
 }
 
-playlist_open :: proc(playlist: ^Playlist, base_path: string) -> Playlist_Error {
-  log.infof("Opening file at %v", base_path)
-  info := os.lstat(base_path) or_return
-  defer os.file_info_delete(info)
-
-  playlist.base_path = strings.clone(base_path)
+playlist_open_path :: proc(playlist: ^Playlist, path: string) -> Playlist_Error {
+  log.infof("Opening file or folder at %v", path)
+  info := os.lstat(path, context.temp_allocator) or_return
 
   if !info.is_dir {
-    parent_path := filepath.dir(base_path)
-    defer delete(parent_path)
-
-    err := playlist_open(playlist, parent_path)
+    parent := filepath.dir(path, context.temp_allocator)
+    err := playlist_open_path(playlist, parent)
     if err != nil {
       return err
     }
 
-    for i in 0..<playlist.entry_count {
-      entry := playlist.shown_entries[i]
-      if entry != nil && strings.compare(entry.filename, info.name) == 0 {
-        playlist.current_index = i
-        break
-      }
-    }
-
+    playlist_go_to_filename(playlist, info.name)
     return nil
   }
 
@@ -139,6 +116,12 @@ playlist_open :: proc(playlist: ^Playlist, base_path: string) -> Playlist_Error 
   files = os.read_dir(fd, 0) or_return
   defer os.file_info_slice_delete(files)
 
+  return playlist_open_files(playlist, info.fullpath, files)
+}
+
+playlist_open_files :: proc(playlist: ^Playlist, parent_path: string, files: []os.File_Info) -> Playlist_Error {
+  log.infof("Opening %d file under %s", len(files), parent_path)
+
   options_loaded, oerr := playlist_options_load(playlist)
   if oerr != nil {
     log.warnf("Failed to read playlist options for path %s due to %v", playlist.base_path, oerr)
@@ -147,24 +130,11 @@ playlist_open :: proc(playlist: ^Playlist, base_path: string) -> Playlist_Error 
   }
 
   for file in files {
-    if file.is_dir {
+    if file.name == ".monokl" {
       continue
     }
 
-    ext := strings.to_lower(filepath.ext(file.fullpath), context.temp_allocator)
-    is_supported := false
-    for sext in SUPPORTED_EXTENSIONS {
-      if ext == sext {
-        is_supported = true
-        break
-      }
-    }
-
-    if !is_supported {
-      continue
-    }
-
-    _, ierr := playlist_try_read_entry(playlist, file)
+    e, ierr := playlist_try_read_entry(playlist, file)
     if ierr != nil {
       log.warnf("Failed to load image %v", ierr)
       continue
@@ -173,7 +143,7 @@ playlist_open :: proc(playlist: ^Playlist, base_path: string) -> Playlist_Error 
 
   playlist_refresh_shown_entries(playlist)
 
-  log.infof("Loaded playlist from %s with %d entries (%d shown) %s", info.fullpath, len(playlist.entries), playlist.entry_count, "and options" if options_loaded else "but without options")
+  log.infof("Loaded playlist from %s with %d entries (%d shown) %s", parent_path, len(playlist.entries), playlist.entry_count, "and options" if options_loaded else "but without options")
 
   return nil
 }
@@ -209,6 +179,10 @@ playlist_refresh_shown_entries :: proc(playlist: ^Playlist) {
   }
 
   playlist.entry_count = len(playlist.shown_entries)
+
+  if playlist.entry_count > 0 {
+    playlist_go_to_first(playlist)
+  }
 }
 
 playlist_destroy :: proc(playlist: ^Playlist) {
@@ -219,12 +193,11 @@ playlist_destroy :: proc(playlist: ^Playlist) {
   delete(playlist.base_path)
 
   for entry in playlist.entries {
-    delete(entry.filename)
+    playlist_entry_destroy(entry)
     free(entry)
   }
 
   delete(playlist.entries)
-  free(playlist)
 }
 
 playlist_get_current_entry :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
@@ -243,27 +216,35 @@ playlist_get_current_entry :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
   return playlist.shown_entries[playlist.current_index]
 }
 
+@(private)
+_playlist_make_current :: proc(playlist: ^Playlist, idx: int) -> ^PlaylistEntry {
+  if playlist == nil {
+    return nil
+  }
+  playlist.current_index = idx
+  return playlist.shown_entries[idx]
+}
+
 playlist_advance :: proc(playlist: ^Playlist, by: int) -> ^PlaylistEntry {
   if len(playlist.shown_entries) < 1 {
     return nil
   }
 
-  playlist.current_index += by
-  if playlist.current_index < 0 {
-    playlist.current_index = playlist.entry_count + by
-  } else if playlist.current_index > playlist.entry_count {
-    playlist.current_index = playlist.current_index % playlist.entry_count
+  idx := playlist.current_index + by
+  if idx < 0 {
+    idx = playlist.entry_count + by
+  } else if idx >= playlist.entry_count {
+    idx = idx % playlist.entry_count
   }
-  return playlist.shown_entries[playlist.current_index]
+
+  return _playlist_make_current(playlist, idx)
 }
 
 playlist_go_to_first :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
   if len(playlist.shown_entries) < 1 {
     return nil
   }
-
-  playlist.current_index = 0
-  return playlist.shown_entries[playlist.current_index]
+  return _playlist_make_current(playlist, 0)
 }
 
 playlist_go_to_last :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
@@ -271,7 +252,30 @@ playlist_go_to_last :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
   if num_entries < 1 {
     return nil
   }
+  return _playlist_make_current(playlist, num_entries - 1)
+}
 
-  playlist.current_index = num_entries - 1
-  return playlist.shown_entries[playlist.current_index]
+playlist_go_to_filename :: proc(playlist: ^Playlist, filename: string) -> ^PlaylistEntry {
+  num_entries := len(playlist.shown_entries)
+  if num_entries < 1 {
+    return nil
+  }
+
+  for i in 0..<num_entries {
+    entry := playlist.shown_entries[i]
+    if entry.filename == filename {
+      return _playlist_make_current(playlist, i)
+    }
+  }
+
+  return nil
+}
+playlist_entry_destroy :: proc(entry: ^PlaylistEntry) {
+  if entry == nil {
+    return
+  }
+
+  delete(entry.filename)
+  delete(entry.extension)
+  delete(entry.full_path)
 }

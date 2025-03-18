@@ -1,13 +1,37 @@
 package platform
 
 import "core:os"
+import "core:time"
 import "core:crypto"
 import "core:encoding/uuid"
 import "core:path/filepath"
 
-import monokl ".."
+FsEntry_Base :: struct {
+  base_path: string,
+  name: string,
+  is_hidden: bool,
+  last_modified: time.Time,
+}
 
-make_temp_dir :: proc() -> (path: string, error: monokl.Error) {
+FsEntry_File :: struct {
+  using _: FsEntry_Base,
+  basename: string,
+  ext: string,
+}
+
+FsEntry_Folder :: struct {
+  using _: FsEntry_Base,
+  children: [dynamic]FsEntry,
+}
+
+FsEntry :: union {
+  FsEntry_File,
+  FsEntry_Folder,
+}
+
+FsError_NotFound :: struct{}
+
+make_temp_dir :: proc() -> (path: string, error: os.Error) {
   base_temp_dir := os.get_env("TEMP")
   defer delete(base_temp_dir)
 
@@ -24,6 +48,6 @@ make_temp_dir :: proc() -> (path: string, error: monokl.Error) {
   return dir_path, nil
 }
 
-delete_dir :: proc(path: string) -> monokl.Error {
+delete_dir :: proc(path: string) -> os.Error {
   return os.remove_directory(path)
 }

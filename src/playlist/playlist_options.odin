@@ -22,6 +22,7 @@ PlaylistSortOrder :: enum {
 PlaylistOptions :: struct {
   skip_hidden: bool,
   only_favorites: bool,
+  only_supported: bool,
   sort_order: Maybe(PlaylistSortOrder),
   favorites: [dynamic]string,
 }

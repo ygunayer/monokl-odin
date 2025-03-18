@@ -37,7 +37,7 @@ application_init :: proc(app: ^Application) -> Application_Error {
 }
 
  application_create_window :: proc(app: ^Application) -> (w: ^Window, err: Window_Error) {
-  window, e := window_init_after(application_get_last_focused_window(app))
+  window, e := window_init_after(app, application_get_last_focused_window(app))
   if e != nil {
     return nil, e
   }

@@ -5,10 +5,12 @@ import "vendor:sdl3"
 import "core:mem"
 import "core:log"
 import "core:fmt"
+import "core:os"
+import "core:path/filepath"
 
 import "../playlist"
 
-Vector2 :: distinct [2]i32
+Vector2 :: [2]i32
 WindowId :: sdl3.WindowID
 DisplayId :: sdl3.DisplayID
 
@@ -17,8 +19,6 @@ WindowSize_Default :: (Vector2) { 1366, 768 }
 WindowPosition_Undefined :: (Vector2) { sdl3.WINDOWPOS_UNDEFINED, sdl3.WINDOWPOS_UNDEFINED }
 WindowPosition_Centered :: (Vector2) { sdl3.WINDOWPOS_CENTERED, sdl3.WINDOWPOS_CENTERED }
 
-Color_Background := sdl3.FColor { .192, .192, .192, 1.0 }
-
 WindowOptions :: struct {
   initial_position: Vector2,
   initial_size: Vector2,
@@ -26,6 +26,7 @@ WindowOptions :: struct {
 }
 
 Window :: struct {
+  app: ^Application,
   id: sdl3.WindowID,
   display_id: sdl3.DisplayID,
   renderer: ^sdl3.Renderer,
@@ -34,9 +35,10 @@ Window :: struct {
   position: Vector2,
   maximized: bool,
   has_focus: bool,
-  playlist: ^playlist.Playlist,
+  playlist: playlist.Playlist,
   dropping_files: bool,
   dropped_files: [dynamic]string,
+  viewport: Viewport,
 }
 
 Window_Error :: union {
@@ -45,18 +47,18 @@ Window_Error :: union {
   playlist.Playlist_Error,
 }
 
-window_init_from_scratch :: proc() -> (w: ^Window, error: Window_Error) {
+window_init_from_scratch :: proc(app: ^Application) -> (w: ^Window, error: Window_Error) {
   options := WindowOptions {
     initial_position = WindowPosition_Centered,
     initial_size = WindowSize_Default,
     maximized = false,
   }
-  return window_init_with_settings(options)
+  return window_init_with_settings(app, options)
 }
 
-window_init_after :: proc(previous: ^Window) -> (w: ^Window, error: Window_Error) {
+window_init_after :: proc(app: ^Application, previous: ^Window) -> (w: ^Window, error: Window_Error) {
   if previous == nil || previous.wnd == nil {
-    return window_init_from_scratch()
+    return window_init_from_scratch(app)
   }
 
   options := WindowOptions {
@@ -87,10 +89,10 @@ window_init_after :: proc(previous: ^Window) -> (w: ^Window, error: Window_Error
 
   options.initial_position = Vector2 { x, y }
 
-  return window_init_with_settings(options)
+  return window_init_with_settings(app, options)
 }
 
-window_init_with_settings :: proc(options: WindowOptions) -> (w: ^Window, error: Window_Error) {
+window_init_with_settings :: proc(app: ^Application, options: WindowOptions) -> (w: ^Window, error: Window_Error) {
   flags := sdl3.WINDOW_RESIZABLE
 
   if options.maximized {
@@ -119,14 +121,18 @@ window_init_with_settings :: proc(options: WindowOptions) -> (w: ^Window, error:
     return nil, mem.Allocator_Error.Out_Of_Memory
   }
 
+  window.app = app
   window.id = sdl3.GetWindowID(wnd)
   window.display_id = sdl3.GetDisplayForWindow(wnd)
   window.wnd = wnd
   window.renderer = renderer
   sdl3.SetWindowPosition(wnd, options.initial_position.x, options.initial_position.y)
 
-  window.playlist = new(playlist.Playlist)
-  playlist.playlist_init(window.playlist)
+  window.playlist = {}
+  playlist.playlist_init(&window.playlist)
+
+  window.viewport = {}
+  viewport_init(&window.viewport, renderer, window.size)
 
   sdl3.GetWindowSize(wnd, &window.size.x, &window.size.y)
   sdl3.GetWindowPosition(wnd, &window.position.x, &window.position.y)
@@ -144,6 +150,8 @@ window_destroy :: proc(window: ^Window) {
   window_unload_playlist(window)
 
   delete(window.dropped_files)
+
+  viewport_destroy(&window.viewport)
 
   if window.renderer != nil {
     sdl3.DestroyRenderer(window.renderer)
@@ -163,12 +171,7 @@ window_update_title :: proc(window: ^Window) {
     return
   }
 
-  if window.playlist == nil {
-    sdl3.SetWindowTitle(window.wnd, "monokl")
-    return
-  }
-
-  item := playlist.playlist_get_current_entry(window.playlist)
+  item := playlist.playlist_get_current_entry(&window.playlist)
   if item == nil {
     sdl3.SetWindowTitle(window.wnd, "monokl - No images")
     return
@@ -187,36 +190,100 @@ window_update_title :: proc(window: ^Window) {
 
 window_render :: proc(window: ^Window) {
   window_update_title(window)
-
-  sdl3.SetRenderDrawColorFloat(window.renderer, Color_Background.r, Color_Background.g, Color_Background.b, Color_Background.a)
-  sdl3.RenderClear(window.renderer)
-  sdl3.RenderPresent(window.renderer)
+  viewport_render(&window.viewport)
 }
 
 window_unload_playlist :: proc(window: ^Window) {
-  if window.playlist != nil {
-    playlist.playlist_destroy(window.playlist)
-    window.playlist = nil
-  }
+  playlist.playlist_destroy(&window.playlist)
+  window.playlist = {}
 }
 
-window_load_playlist :: proc(window: ^Window, path: string) -> playlist.Playlist_Error {
+window_load_playlist :: proc(window: ^Window, paths: []string) -> playlist.Playlist_Error {
   window_unload_playlist(window)
 
-  pl := new(playlist.Playlist)
+  folders := make(map[string][dynamic]os.File_Info, context.temp_allocator)
 
-  err := playlist.playlist_open(pl, path)
-  if err != nil {
-    free(pl)
-    return err
+  for path in paths {
+    if os.is_dir(path) {
+      map_insert(&folders, path, make([dynamic]os.File_Info, context.temp_allocator))
+    } else {
+      parent_path := filepath.dir(path, context.temp_allocator)
+
+      info, err := os.lstat(path, context.temp_allocator)
+      if err != nil {
+        log.warnf("Failed to read file information for %s", path)
+        continue
+      }
+
+      if !(parent_path in folders) {
+        map_insert(&folders, parent_path, make([dynamic]os.File_Info, context.temp_allocator))
+      }
+
+      append(&folders[parent_path], info)
+    }
   }
 
-  window_unload_playlist(window)
-  window.playlist = pl
+  log.debugf("Opening folders %v", folders)
+
+  if len(paths) < 1 {
+    return nil
+  }
+
+  is_first := true
+  for parent in folders {
+    children := folders[parent]
+
+    pl: playlist.Playlist = {}
+    err: playlist.Playlist_Error
+
+    if len(children) == 0 {
+      err = playlist.playlist_open_path(&pl, parent)
+    } else {
+      err = playlist.playlist_open_files(&pl, parent, children[:])
+    }
+
+    if err != nil {
+      log.warnf("Failed to open playlist at %s due to %v", parent, err)
+      continue
+    }
+
+    if is_first {
+      window.playlist = pl
+      is_first = false
+      continue
+    }
+
+    new_window, window_err := application_create_window(window.app)
+    if window_err != nil {
+      log.warnf("Failed to create a new window to open playlist %s due to %v", parent, window_err)
+    } else {
+      new_window.playlist = pl
+      window_reload_viewport(new_window)
+    }
+  }
+
+  window_reload_viewport(window)
+
   return nil
 }
 
- window_handle_event :: proc(window: ^Window, event: Event) {
+window_reload_viewport :: proc(window: ^Window) {
+  viewport_clear(&window.viewport)
+
+  entry := playlist.playlist_get_current_entry(&window.playlist)
+  if entry != nil {
+    media: playlist.Media
+    err := playlist.media_load(&media, entry.full_path)
+    if err != nil {
+      log.warnf("Failed to load media from current playlist entry: %v", err)
+      return
+    }
+
+    viewport_add_media(&window.viewport, &media)
+  }
+}
+
+window_handle_event :: proc(window: ^Window, event: Event) {
   switch e in event {
     case WindowEvent: {
       if e.window_id != window.id {
@@ -236,8 +303,10 @@ window_load_playlist :: proc(window: ^Window, path: string) -> playlist.Playlist
         case .LostFocus:
           window.has_focus = false;
 
-        case .Resized:
+        case .Resized: {
           sdl3.GetWindowSize(window.wnd, &window.size.x, &window.size.y)
+          viewport_resize(&window.viewport, window.size)
+        }
 
         case .Moved: {
           sdl3.GetWindowPosition(window.wnd, &window.position.x, &window.position.y)
@@ -267,17 +336,25 @@ window_load_playlist :: proc(window: ^Window, path: string) -> playlist.Playlist
       }
 
       #partial switch e.action.type {
-        case .GoToNext:
-          playlist.playlist_advance(window.playlist, 1)
+        case .GoToNext: {
+          playlist.playlist_advance(&window.playlist, 1)
+          window_reload_viewport(window)
+        }
 
-        case .GoToPrevious:
-          playlist.playlist_advance(window.playlist, -1)
+        case .GoToPrevious: {
+          playlist.playlist_advance(&window.playlist, -1)
+          window_reload_viewport(window)
+        }
 
-        case .GoToFirst:
-          playlist.playlist_go_to_first(window.playlist)
+        case .GoToFirst: {
+          playlist.playlist_go_to_first(&window.playlist)
+          window_reload_viewport(window)
+        }
 
-        case .GoToLast:
-          playlist.playlist_go_to_last(window.playlist)
+        case .GoToLast: {
+          playlist.playlist_go_to_last(&window.playlist)
+          window_reload_viewport(window)
+        }
       }
     }
 
@@ -298,7 +375,7 @@ window_load_playlist :: proc(window: ^Window, path: string) -> playlist.Playlist
           if window.dropping_files {
             window.dropping_files = false
             if len(window.dropped_files) > 0 {
-              window_load_playlist(window, window.dropped_files[0])
+              window_load_playlist(window, window.dropped_files[:])
             }
             clear(&window.dropped_files)
           }
