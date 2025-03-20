@@ -23,10 +23,10 @@
 			"working_dir": "${project_path}",
 			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
 			"windows": {
-				"cmd": ["build.bat", "run", "-d"],
+				"cmd": ["powershell.exe", "${project_path}\\build.ps1", "run"],
 			},
 			"linux": {
-				"cmd": ["./build.sh", "run", "-d"],
+				"cmd": ["./build.sh", "run"],
 			},
 		},
 		{
@@ -35,10 +35,10 @@
 			"working_dir": "${project_path}",
 			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
 			"windows": {
-				"cmd": ["build.bat", "build", "-d"],
+				"cmd": ["powershell.exe", "${project_path}\\build.ps1", "build"],
 			},
 			"linux": {
-				"cmd": ["./build.sh", "build", "-d"],
+				"cmd": ["./build.sh", "build"],
 			},
 		},
 	],

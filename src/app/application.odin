@@ -3,11 +3,15 @@ package app
 import "core:mem"
 import "core:log"
 import "core:time"
+import "core:os"
 import "vendor:sdl3"
+
+import "../ui"
 
 Application :: struct {
   windows: map[WindowId]^Window,
   action_mappings: []ActionMapping,
+  settings: AppSettings,
   window_stack: Stack,
 }
 
@@ -21,6 +25,11 @@ Application_Error :: union {
 }
 
 application_init :: proc(app: ^Application) -> Application_Error {
+  settings_err := app_settings_load(&app.settings)
+  if settings_err != nil {
+    log.errorf("Error loading application settings: %v", settings_err)
+  }
+
   app.windows = make(map[WindowId]^Window)
 
   action_mappings := get_default_action_mappings()
@@ -31,7 +40,14 @@ application_init :: proc(app: ^Application) -> Application_Error {
     return Application_InitError { message = string(sdl3.GetError()) }
   }
 
-  application_create_window(app)
+  window, err := application_create_window(app)
+  if err != nil {
+    return err
+  }
+
+  if len(os.args) > 1 {
+    window_load_playlist(window, os.args[1:])
+  }
 
   return nil
 }
@@ -78,6 +94,19 @@ application_close_window :: proc(app: ^Application, window_id: WindowId) {
 application_handle_event :: proc(app: ^Application, event: sdl3.Event) {
   if event.type == .WINDOW_CLOSE_REQUESTED {
     application_close_window(app, event.window.windowID)
+  }
+
+  if event.type == .SYSTEM_THEME_CHANGED {
+    #partial switch s in app.settings.theme {
+      case ThemeSetting_BuiltIn:
+        if s == .System {
+          theme := ui.get_system_theme()
+          for _, &w in app.windows {
+            ui.gui_set_theme(&w.gui, theme)
+          }
+        }
+    }
+
   }
 
   translated_event, is_translated := event_translate(event, app.action_mappings).?

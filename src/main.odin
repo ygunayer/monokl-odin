@@ -10,7 +10,7 @@ import "core:time"
 
 import "app"
 
-main :: proc() {
+mainCRTStartup :: proc() {
   logger := log.create_console_logger()
   context.logger = logger
 
@@ -55,4 +55,8 @@ main :: proc() {
 
   clear_ta(&ta)
   mem.tracking_allocator_destroy(&ta)
+}
+
+main :: proc() {
+  mainCRTStartup()
 }

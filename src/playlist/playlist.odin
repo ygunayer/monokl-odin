@@ -130,7 +130,7 @@ playlist_open_files :: proc(playlist: ^Playlist, parent_path: string, files: []o
   }
 
   for file in files {
-    if file.name == ".monokl" {
+    if file.is_dir || file.name == ".monokl" {
       continue
     }
 
