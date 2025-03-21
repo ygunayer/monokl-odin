@@ -1,4 +1,4 @@
-package linalg
+package monokl
 
 Vec2 :: [2]f32
 

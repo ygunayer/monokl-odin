@@ -1,4 +1,4 @@
-package playlist
+package monokl
 
 import "core:path/filepath"
 import "core:time"
@@ -10,7 +10,6 @@ import "core:bytes"
 import "core:slice"
 import "base:runtime"
 import "core:encoding/json"
-import "../platform"
 import stbi "vendor:stb/image"
 import "vendor:sdl3"
 
@@ -40,24 +39,6 @@ Playlist :: struct {
   favorites: []string,
 }
 
-Playlist_OptionsError :: union #shared_nil {
-  json.Marshal_Error,
-  json.Unmarshal_Error,
-}
-
-Playlist_ImageLoadingError :: struct {
-  path: string,
-  message: string,
-}
-
-Playlist_Error :: union {
-  Playlist_ImageLoadingError,
-  Playlist_OptionsError,
-  io.Error,
-  os.Error,
-  runtime.Allocator_Error,
-}
-
 playlist_init :: proc(playlist: ^Playlist) {
   playlist.entries = make([dynamic]^PlaylistEntry)
   playlist.shown_entries = playlist.entries[:]
@@ -81,7 +62,7 @@ playlist_try_read_entry :: proc(playlist: ^Playlist, info: os.File_Info) -> (ok:
   entry.last_modified = info.modification_time
   entry.is_favorited = false
   entry.is_supported = is_supported_file(info)
-  entry.is_hidden = platform.is_file_hidden(info)
+  entry.is_hidden = is_file_hidden(info)
 
   for fav in playlist.favorites {
     if info.name == fav {
@@ -270,6 +251,7 @@ playlist_go_to_filename :: proc(playlist: ^Playlist, filename: string) -> ^Playl
 
   return nil
 }
+
 playlist_entry_destroy :: proc(entry: ^PlaylistEntry) {
   if entry == nil {
     return

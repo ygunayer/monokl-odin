@@ -1,4 +1,4 @@
-package playlist
+package monokl
 
 import "core:os"
 import "core:log"
@@ -25,26 +25,6 @@ Media :: struct {
   channels: i32,
   frame_rate: f32,
   frames: [dynamic]ImageFrame,
-}
-
-Media_LoadingError :: struct {
-  reason: string,
-}
-
-Media_UnsupportedTypeError :: struct {
-  bits: i32,
-  channels: i32,
-}
-
-Media_SdlError :: struct {
-  reason: string,
-}
-
-Media_Error :: union {
-  os.Error,
-  Media_SdlError,
-  Media_LoadingError,
-  Media_UnsupportedTypeError,
 }
 
 is_supported_file :: proc(info: os.File_Info) -> bool {

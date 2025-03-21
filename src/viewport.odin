@@ -1,28 +1,25 @@
-package ui
+package monokl
 
 import "core:log"
 import "vendor:sdl3"
 
-import "../playlist"
-import "../linalg"
-
 Viewport :: struct {
-  size: linalg.Vec2i,
+  size: Vec2i,
   zoom_factor: f32,
   objects: [dynamic]SceneObject,
   renderer: ^sdl3.Renderer,
-  media: [dynamic]^playlist.Media,
+  media: [dynamic]^Media,
   theme: Theme,
 }
 
 Camera :: struct {
-  transform: linalg.Transform2,
+  transform: Transform2,
 }
 
 SceneObject_Base :: struct {
   visible: bool,
   size: [2]f32,
-  transform: linalg.Transform2,
+  transform: Transform2,
 }
 
 SceneObject_Image :: struct {
@@ -41,13 +38,13 @@ SceneObject :: union {
   SceneObject_Image,
 }
 
-viewport_init :: proc(viewport: ^Viewport, renderer: ^sdl3.Renderer, size: linalg.Vec2i, theme: Theme) {
+viewport_init :: proc(viewport: ^Viewport, renderer: ^sdl3.Renderer, size: Vec2i, theme: Theme) {
   if viewport == nil {
     return
   }
 
   viewport.objects = make([dynamic]SceneObject)
-  viewport.media = make([dynamic]^playlist.Media)
+  viewport.media = make([dynamic]^Media)
   viewport.renderer = renderer
   viewport.size = size
   viewport.zoom_factor = 1
@@ -106,7 +103,7 @@ viewport_destroy :: proc(viewport: ^Viewport) {
 
   if viewport.media != nil {
     for media in viewport.media {
-      playlist.media_destroy(media)
+      media_destroy(media)
       free(media)
     }
 

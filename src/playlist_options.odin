@@ -1,4 +1,4 @@
-package playlist
+package monokl
 
 import "core:os"
 import "core:io"
@@ -25,11 +25,6 @@ PlaylistOptions :: struct {
   only_supported: bool,
   sort_order: Maybe(PlaylistSortOrder),
   favorites: [dynamic]string,
-}
-
-PlaylistOptions_Error :: union #shared_nil {
-  json.Marshal_Error,
-  json.Unmarshal_Error,
 }
 
 playlist_options_read :: proc(opts: ^PlaylistOptions, input: []byte, loc := #caller_location) -> PlaylistOptions_Error {
@@ -61,7 +56,7 @@ playlist_options_load :: proc (playlist: ^Playlist) -> (ok: bool, error: Playlis
 
   if err == ERR_FILE_NOT_FOUND {
     return false, nil
-  } 
+  }
 
   bytes, is_ok := os.read_entire_file_from_handle(fd, context.temp_allocator)
 

@@ -8,9 +8,7 @@ import "core:os"
 import "core:mem"
 import "core:time"
 
-import "app"
-
-mainCRTStartup :: proc() {
+main :: proc() {
   logger := log.create_console_logger()
   context.logger = logger
 
@@ -40,8 +38,8 @@ mainCRTStartup :: proc() {
     mem.tracking_allocator_clear(ta)
   }
 
-  application := new(app.Application)
-  err := app.application_init(application)
+  application := new(Application)
+  err := application_init(application)
 
   if err != nil {
     log.fatalf("Failed to initialize application: %v", err)
@@ -49,14 +47,10 @@ mainCRTStartup :: proc() {
     os.exit(-1)
   }
 
-  app.application_run_main_loop(application)
+  application_run_main_loop(application)
 
-  app.application_destroy(application)
+  application_destroy(application)
 
   clear_ta(&ta)
   mem.tracking_allocator_destroy(&ta)
-}
-
-main :: proc() {
-  mainCRTStartup()
 }

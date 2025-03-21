@@ -1,4 +1,4 @@
-package app
+package monokl
 
 import "core:log"
 

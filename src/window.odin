@@ -1,4 +1,4 @@
-package app
+package monokl
 
 import "core:strings"
 import "vendor:sdl3"
@@ -8,9 +8,6 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:math"
-
-import "../playlist"
-import "../ui"
 
 Vector2i :: [2]i32
 WindowId :: sdl3.WindowID
@@ -37,16 +34,12 @@ Window :: struct {
   position: Vector2i,
   maximized: bool,
   has_focus: bool,
-  playlist: playlist.Playlist,
+  playlist: Playlist,
   dropping_files: bool,
   dropped_files: [dynamic]string,
-  gui: ui.Gui,
-}
-
-Window_Error :: union {
-  SdlError,
-  mem.Allocator_Error,
-  playlist.Playlist_Error,
+  ui: Ui,
+  event_bus: ^EventBus,
+  event_sub_id: SubscriberId,
 }
 
 window_init_from_scratch :: proc(app: ^Application) -> (w: ^Window, error: Window_Error) {
@@ -134,10 +127,10 @@ window_init_with_settings :: proc(app: ^Application, options: WindowOptions) -> 
   sdl3.GetWindowPosition(wnd, &window.position.x, &window.position.y)
 
   window.playlist = {}
-  playlist.playlist_init(&window.playlist)
+  playlist_init(&window.playlist)
 
-  theme := theme_setting_to_ui_theme(&app.settings.theme)
-  ui.gui_init(&window.gui, renderer, window.size, &window.playlist, theme)
+  theme := settings_get_theme(&app.settings)
+  ui_init(&window.ui, renderer, window.size, &window.playlist, theme)
 
   return window, nil
 }
@@ -153,7 +146,9 @@ window_destroy :: proc(window: ^Window) {
 
   delete(window.dropped_files)
 
-  ui.gui_destroy(&window.gui)
+  ui_destroy(&window.ui)
+
+  event_bus_unsubscribe(window.event_bus, window.event_sub_id)
 
   if window.renderer != nil {
     sdl3.DestroyRenderer(window.renderer)
@@ -173,7 +168,7 @@ window_update_title :: proc(window: ^Window) {
     return
   }
 
-  item := playlist.playlist_get_current_entry(&window.playlist)
+  item := playlist_get_current_entry(&window.playlist)
   if item == nil {
     sdl3.SetWindowTitle(window.wnd, "monokl - No images")
     return
@@ -192,15 +187,15 @@ window_update_title :: proc(window: ^Window) {
 
 window_render :: proc(window: ^Window) {
   window_update_title(window)
-  ui.gui_render(&window.gui)
+  ui_render(&window.ui)
 }
 
 window_unload_playlist :: proc(window: ^Window) {
-  playlist.playlist_destroy(&window.playlist)
+  playlist_destroy(&window.playlist)
   window.playlist = {}
 }
 
-window_load_playlist :: proc(window: ^Window, paths: []string) -> playlist.Playlist_Error {
+window_load_playlist :: proc(window: ^Window, paths: []string) -> Playlist_Error {
   window_unload_playlist(window)
 
   folders := make(map[string][dynamic]os.File_Info, context.temp_allocator)
@@ -235,22 +230,22 @@ window_load_playlist :: proc(window: ^Window, paths: []string) -> playlist.Playl
   for parent in folders {
     children := folders[parent]
 
-    pl: playlist.Playlist = {}
-    err: playlist.Playlist_Error
+    pl: Playlist = {}
+    err: Playlist_Error
 
     switch len(children) {
       case 0:
-        err = playlist.playlist_open_path(&pl, parent)
+        err = playlist_open_path(&pl, parent)
 
       case 1: {
-        err = playlist.playlist_open_path(&pl, parent)
+        err = playlist_open_path(&pl, parent)
         if err != nil {
-          playlist.playlist_go_to_filename(&pl, children[0].name)
+          playlist_go_to_filename(&pl, children[0].name)
         }
       }
 
       case:
-        err = playlist.playlist_open_files(&pl, parent, children[:])
+        err = playlist_open_files(&pl, parent, children[:])
     }
 
     if err != nil {
@@ -269,119 +264,8 @@ window_load_playlist :: proc(window: ^Window, paths: []string) -> playlist.Playl
       log.warnf("Failed to create a new window to open playlist %s due to %v", parent, window_err)
     } else {
       new_window.playlist = pl
-      window_refresh_viewport(new_window)
     }
   }
-
-  window_refresh_viewport(window)
 
   return nil
-}
-
-window_refresh_viewport :: proc(window: ^Window) {
-  ui.gui_update(&window.gui)
-}
-
-window_handle_event :: proc(window: ^Window, event: Event) {
-  #partial switch e in event {
-    case WindowEvent: {
-      if e.window_id != window.id {
-        return
-      }
-
-      switch e.type {
-        case .Maximized:
-          window.maximized = true;
-
-        case .Minimized, .Restored:
-          window.maximized = false;
-
-        case .GainedFocus:
-          window.has_focus = true;
-
-        case .LostFocus:
-          window.has_focus = false;
-
-        case .Resized: {
-          sdl3.GetWindowSize(window.wnd, &window.size.x, &window.size.y)
-          ui.gui_resize(&window.gui, window.size)
-        }
-
-        case .Moved: {
-          sdl3.GetWindowPosition(window.wnd, &window.position.x, &window.position.y)
-          display_id := sdl3.GetDisplayForWindow(window.wnd)
-          if display_id == 0 {
-            log.warnf("Failed to get display ID for window %d due to %s", window.id, sdl3.GetError())
-          } else {
-            window.display_id = display_id
-          }
-        }
-      }
-
-      // log.debugf(
-      //   "Window %d handled window event. New state: has_focus=%v, maximized=%v, size=%v, position:%v, display_id:%v",
-      //   window.id,
-      //   window.has_focus,
-      //   window.maximized,
-      //   window.size,
-      //   window.position,
-      //   window.display_id,
-      // )
-    }
-
-    case ActionEvent: {
-      if e.window_id != window.id {
-        return
-      }
-
-      #partial switch e.action.type {
-        case .GoToNext: {
-          playlist.playlist_advance(&window.playlist, 1)
-          window_refresh_viewport(window)
-        }
-
-        case .GoToPrevious: {
-          playlist.playlist_advance(&window.playlist, -1)
-          window_refresh_viewport(window)
-        }
-
-        case .GoToFirst: {
-          playlist.playlist_go_to_first(&window.playlist)
-          window_refresh_viewport(window)
-        }
-
-        case .GoToLast: {
-          playlist.playlist_go_to_last(&window.playlist)
-          window_refresh_viewport(window)
-        }
-      }
-    }
-
-    case DropEvent: {
-      switch e.type {
-        case .Begin: {
-          window.dropping_files = true
-          clear(&window.dropped_files)
-        }
-
-        case .DropFile: {
-          if window.dropping_files {
-            append(&window.dropped_files, e.file)
-          }
-        }
-
-        case .End: {
-          if window.dropping_files {
-            window.dropping_files = false
-            if len(window.dropped_files) > 0 {
-              window_load_playlist(window, window.dropped_files[:])
-            }
-            clear(&window.dropped_files)
-          }
-        }
-
-      }
-    }
-  }
-
 }

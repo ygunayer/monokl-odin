@@ -1,4 +1,4 @@
-package playlist
+package monokl
 
 import "core:testing"
 import "core:strings"

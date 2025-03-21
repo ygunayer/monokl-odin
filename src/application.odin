@@ -1,4 +1,4 @@
-package app
+package monokl
 
 import "core:mem"
 import "core:log"
@@ -6,34 +6,22 @@ import "core:time"
 import "core:os"
 import "vendor:sdl3"
 
-import "../ui"
-
 Application :: struct {
   windows: map[WindowId]^Window,
-  action_mappings: []ActionMapping,
-  settings: AppSettings,
+  settings: Settings,
   window_stack: Stack,
-}
-
-Application_InitError :: struct {
-  message: string,
-}
-
-Application_Error :: union {
-  Window_Error,
-  Application_InitError,
+  event_bus: EventBus,
 }
 
 application_init :: proc(app: ^Application) -> Application_Error {
-  settings_err := app_settings_load(&app.settings)
+  settings, settings_err := settings_load()
   if settings_err != nil {
     log.errorf("Error loading application settings: %v", settings_err)
   }
 
+  app.settings = settings
   app.windows = make(map[WindowId]^Window)
-
-  action_mappings := get_default_action_mappings()
-  app.action_mappings = action_mappings[:]
+  event_bus_init(&app.event_bus)
 
   init_success := sdl3.Init(sdl3.INIT_VIDEO)
   if !init_success {
@@ -97,55 +85,20 @@ application_handle_event :: proc(app: ^Application, event: sdl3.Event) {
   }
 
   if event.type == .SYSTEM_THEME_CHANGED {
-    #partial switch s in app.settings.theme {
-      case ThemeSetting_BuiltIn:
-        if s == .System {
-          theme := ui.get_system_theme()
-          for _, &w in app.windows {
-            ui.gui_set_theme(&w.gui, theme)
-          }
-        }
-    }
-
-  }
-
-  translated_event, is_translated := event_translate(event, app.action_mappings).?
-  if is_translated {
-    #partial switch e in translated_event {
-      case WindowEvent: {
-        if e.window_id in app.windows {
-          window := app.windows[e.window_id]
-          window_handle_event(window, e)
-
-          if e.type == .GainedFocus {
-            stack_push(&app.window_stack, window.id)
-          }
-        }
-      }
-
-      case ActionEvent: {
-        if e.action.type == .CloseWindow {
-          application_close_window(app, e.window_id)
-        }
-
-        if e.action.type == .OpenNewWindow {
-          application_create_window(app)
-        }
-
-        if e.window_id in app.windows {
-          window := app.windows[e.window_id]
-          window_handle_event(window, e)
-        }
-      }
-
-      case DropEvent: {
-        if e.window_id in app.windows {
-          window := app.windows[e.window_id]
-          window_handle_event(window, e)
-        }
+    if app.settings.theme.type == .System {
+      theme := get_system_theme()
+      for _, &w in app.windows {
+        ui_set_theme(&w.ui, theme)
       }
     }
   }
+
+  translated_event, is_translated := sdl_event_translate(event, &app.settings)
+  if !is_translated {
+    return
+  }
+
+  // TODO
 }
 
 application_run_main_loop :: proc(app: ^Application) {
@@ -184,13 +137,13 @@ application_destroy :: proc(app: ^Application) {
     return
   }
 
+  event_bus_destroy(&app.event_bus)
+
   for _, wnd in app.windows {
     window_destroy(wnd)
   }
 
   delete(app.windows)
-
-  delete(app.action_mappings)
 
   free(app)
 }

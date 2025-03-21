@@ -1,4 +1,4 @@
-package platform
+package monokl
 
 import "core:os"
 import "core:sys/windows"
