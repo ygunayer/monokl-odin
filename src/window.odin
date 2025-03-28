@@ -25,7 +25,7 @@ WindowOptions :: struct {
 }
 
 Window :: struct {
-  app: ^Application,
+  app: ^App,
   id: sdl3.WindowID,
   display_id: sdl3.DisplayID,
   renderer: ^sdl3.Renderer,
@@ -34,15 +34,11 @@ Window :: struct {
   position: Vector2i,
   maximized: bool,
   has_focus: bool,
-  playlist: Playlist,
-  dropping_files: bool,
-  dropped_files: [dynamic]string,
   ui: Ui,
-  event_bus: ^EventBus,
   event_sub_id: SubscriberId,
 }
 
-window_init_from_scratch :: proc(app: ^Application) -> (w: ^Window, error: Window_Error) {
+window_init_from_scratch :: proc(app: ^App) -> (w: ^Window, error: Window_Error) {
   options := WindowOptions {
     initial_position = WindowPosition_Centered,
     initial_size = WindowSize_Default,
@@ -51,7 +47,7 @@ window_init_from_scratch :: proc(app: ^Application) -> (w: ^Window, error: Windo
   return window_init_with_settings(app, options)
 }
 
-window_init_after :: proc(app: ^Application, previous: ^Window) -> (w: ^Window, error: Window_Error) {
+window_init_after :: proc(app: ^App, previous: ^Window) -> (w: ^Window, error: Window_Error) {
   if previous == nil || previous.wnd == nil {
     return window_init_from_scratch(app)
   }
@@ -87,7 +83,7 @@ window_init_after :: proc(app: ^Application, previous: ^Window) -> (w: ^Window, 
   return window_init_with_settings(app, options)
 }
 
-window_init_with_settings :: proc(app: ^Application, options: WindowOptions) -> (w: ^Window, error: Window_Error) {
+window_init_with_settings :: proc(app: ^App, options: WindowOptions) -> (w: ^Window, error: Window_Error) {
   flags := sdl3.WINDOW_RESIZABLE
 
   if options.maximized {
@@ -126,11 +122,11 @@ window_init_with_settings :: proc(app: ^Application, options: WindowOptions) -> 
   sdl3.GetWindowSize(wnd, &window.size.x, &window.size.y)
   sdl3.GetWindowPosition(wnd, &window.position.x, &window.position.y)
 
-  window.playlist = {}
-  playlist_init(&window.playlist)
+  event_bus_subscribe(&app.event_bus, window, window_handle_event, {
+    .WindowResized,
+  })
 
-  theme := settings_get_theme(&app.settings)
-  ui_init(&window.ui, renderer, window.size, &window.playlist, theme)
+  ui_init(&window.ui, window)
 
   return window, nil
 }
@@ -141,14 +137,55 @@ window_init :: proc {
   window_init_with_settings,
 }
 
-window_destroy :: proc(window: ^Window) {
-  window_unload_playlist(window)
+window_set_title :: proc(window: ^Window, title: string) {
+  if window == nil {
+    return
+  }
+  title_string := strings.clone_to_cstring(title, context.temp_allocator)
+  sdl3.SetWindowTitle(window.wnd, title_string)
+}
 
-  delete(window.dropped_files)
+window_render :: proc(window: ^Window) {
+  ui_render(&window.ui)
+}
+
+window_handle_event :: proc(window: ^Window, event: Event) -> bool {
+  #partial switch event.type {
+    case .WindowResized:
+      sdl3.GetWindowSize(window.wnd, &window.size.x, &window.size.y)
+
+    case .WindowMoved: {
+      sdl3.GetWindowPosition(window.wnd, &window.position.x, &window.position.y)
+
+      display_id := sdl3.GetDisplayForWindow(window.wnd)
+      if display_id == 0 {
+        log.warnf("Failed to get display ID for window %d", window.id)
+      } else {
+        window.display_id = display_id
+      }
+    }
+
+    case .WindowMaximized:
+      window.maximized = true
+
+    case .WindowRestored, .WindowMinimized:
+      window.maximized = false
+
+    case .WindowGainedFocus:
+      window.has_focus = true
+
+    case .WindowLostFocus:
+      window.has_focus = false
+
+  }
+
+  return true
+}
+
+window_destroy :: proc(window: ^Window) {
+  event_bus_unsubscribe(&window.app.event_bus, window.event_sub_id)
 
   ui_destroy(&window.ui)
-
-  event_bus_unsubscribe(window.event_bus, window.event_sub_id)
 
   if window.renderer != nil {
     sdl3.DestroyRenderer(window.renderer)
@@ -159,113 +196,4 @@ window_destroy :: proc(window: ^Window) {
     sdl3.DestroyWindow(window.wnd)
     window.wnd = nil
   }
-
-  free(window)
-}
-
-window_update_title :: proc(window: ^Window) {
-  if window == nil {
-    return
-  }
-
-  item := playlist_get_current_entry(&window.playlist)
-  if item == nil {
-    sdl3.SetWindowTitle(window.wnd, "monokl - No images")
-    return
-  }
-
-  title_string := strings.clone_to_cstring(fmt.tprintf(
-    "monokl - %s%d/%d - %s",
-    "♥" if item.is_favorited else "",
-    window.playlist.current_index + 1,
-    window.playlist.entry_count,
-    item.filename,
-  ), allocator = context.temp_allocator)
-
-  sdl3.SetWindowTitle(window.wnd, title_string)
-}
-
-window_render :: proc(window: ^Window) {
-  window_update_title(window)
-  ui_render(&window.ui)
-}
-
-window_unload_playlist :: proc(window: ^Window) {
-  playlist_destroy(&window.playlist)
-  window.playlist = {}
-}
-
-window_load_playlist :: proc(window: ^Window, paths: []string) -> Playlist_Error {
-  window_unload_playlist(window)
-
-  folders := make(map[string][dynamic]os.File_Info, context.temp_allocator)
-
-  for path in paths {
-    if os.is_dir(path) {
-      map_insert(&folders, path, make([dynamic]os.File_Info, context.temp_allocator))
-    } else {
-      parent_path := filepath.dir(path, context.temp_allocator)
-
-      info, err := os.lstat(path, context.temp_allocator)
-      if err != nil {
-        log.warnf("Failed to read file information for %s", path)
-        continue
-      }
-
-      if !(parent_path in folders) {
-        map_insert(&folders, parent_path, make([dynamic]os.File_Info, context.temp_allocator))
-      }
-
-      append(&folders[parent_path], info)
-    }
-  }
-
-  log.debugf("Opening folders %v", folders)
-
-  if len(paths) < 1 {
-    return nil
-  }
-
-  is_first := true
-  for parent in folders {
-    children := folders[parent]
-
-    pl: Playlist = {}
-    err: Playlist_Error
-
-    switch len(children) {
-      case 0:
-        err = playlist_open_path(&pl, parent)
-
-      case 1: {
-        err = playlist_open_path(&pl, parent)
-        if err != nil {
-          playlist_go_to_filename(&pl, children[0].name)
-        }
-      }
-
-      case:
-        err = playlist_open_files(&pl, parent, children[:])
-    }
-
-    if err != nil {
-      log.warnf("Failed to open playlist at %s due to %v", parent, err)
-      continue
-    }
-
-    if is_first {
-      window.playlist = pl
-      is_first = false
-      continue
-    }
-
-    new_window, window_err := application_create_window(window.app)
-    if window_err != nil {
-      log.warnf("Failed to create a new window to open playlist %s due to %v", parent, window_err)
-    } else {
-      new_window.playlist = pl
-    }
-  }
-
-  return nil
 }

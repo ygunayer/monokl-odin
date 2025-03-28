@@ -65,7 +65,9 @@ viewport_render :: proc(viewport: ^Viewport) {
   for obj in viewport.objects {
     #partial switch &o in obj {
       case SceneObject_Image: {
-        sdl3.RenderTexture(viewport.renderer, o.texture, nil, nil)
+        if o.visible {
+          sdl3.RenderTexture(viewport.renderer, o.texture, nil, nil)
+        }
       }
     }
   }

@@ -6,18 +6,20 @@ import "core:time"
 import "core:os"
 import "vendor:sdl3"
 
-Application :: struct {
+App :: struct {
   windows: map[WindowId]^Window,
   settings: Settings,
   window_stack: Stack,
   event_bus: EventBus,
 }
 
-application_init :: proc(app: ^Application) -> Application_Error {
+app_init :: proc(app: ^App) -> App_Error {
   settings, settings_err := settings_load()
   if settings_err != nil {
     log.errorf("Error loading application settings: %v", settings_err)
   }
+
+  log.debugf("Mappings: %v", settings.input.mappings)
 
   app.settings = settings
   app.windows = make(map[WindowId]^Window)
@@ -25,23 +27,23 @@ application_init :: proc(app: ^Application) -> Application_Error {
 
   init_success := sdl3.Init(sdl3.INIT_VIDEO)
   if !init_success {
-    return Application_InitError { message = string(sdl3.GetError()) }
+    return App_InitError { message = string(sdl3.GetError()) }
   }
 
-  window, err := application_create_window(app)
+  window, err := app_create_window(app)
   if err != nil {
     return err
   }
 
   if len(os.args) > 1 {
-    window_load_playlist(window, os.args[1:])
+    ui_load_playlist(&window.ui, os.args[1:])
   }
 
   return nil
 }
 
- application_create_window :: proc(app: ^Application) -> (w: ^Window, err: Window_Error) {
-  window, e := window_init_after(app, application_get_last_focused_window(app))
+ app_create_window :: proc(app: ^App) -> (w: ^Window, err: Window_Error) {
+  window, e := window_init_after(app, app_get_last_focused_window(app))
   if e != nil {
     return nil, e
   }
@@ -51,7 +53,7 @@ application_init :: proc(app: ^Application) -> Application_Error {
   return window, e
 }
 
-application_get_last_focused_window :: proc(app: ^Application) -> ^Window {
+app_get_last_focused_window :: proc(app: ^App) -> ^Window {
   id, found := stack_peek(&app.window_stack)
 
   if !found {
@@ -65,7 +67,7 @@ application_get_last_focused_window :: proc(app: ^Application) -> ^Window {
   return app.windows[id]
 }
 
-application_close_window :: proc(app: ^Application, window_id: WindowId) {
+app_close_window :: proc(app: ^App, window_id: WindowId) {
   if !(window_id in app.windows) {
     return
   }
@@ -74,14 +76,15 @@ application_close_window :: proc(app: ^Application, window_id: WindowId) {
 
   window := app.windows[window_id]
   window_destroy(window)
+  free(window)
   delete_key(&app.windows, window_id)
 
   log.debugf("Window %d closed", window_id)
 }
 
-application_handle_event :: proc(app: ^Application, event: sdl3.Event) {
+app_handle_event :: proc(app: ^App, event: sdl3.Event) {
   if event.type == .WINDOW_CLOSE_REQUESTED {
-    application_close_window(app, event.window.windowID)
+    app_close_window(app, event.window.windowID)
   }
 
   if event.type == .SYSTEM_THEME_CHANGED {
@@ -98,10 +101,14 @@ application_handle_event :: proc(app: ^Application, event: sdl3.Event) {
     return
   }
 
-  // TODO
+  if translated_event.type == .Action && translated_event.payload.(ActionPayload).type == .OpenNewWindow {
+    app_create_window(app)
+  }
+
+  event_bus_publish(&app.event_bus, translated_event)
 }
 
-application_run_main_loop :: proc(app: ^Application) {
+app_run_main_loop :: proc(app: ^App) {
   last_rendered := time.tick_now()
   max_frame_delay := 1000.0 / 60.0
 
@@ -113,8 +120,10 @@ application_run_main_loop :: proc(app: ^Application) {
 
     has_event := sdl3.PollEvent(&sdl_event)
     if has_event {
-      application_handle_event(app, sdl_event)
+      app_handle_event(app, sdl_event)
     }
+
+    event_bus_update(&app.event_bus)
 
     elapsed := time.duration_milliseconds(time.tick_since(last_rendered))
 
@@ -132,18 +141,17 @@ application_run_main_loop :: proc(app: ^Application) {
   free_all(context.temp_allocator)
 }
 
-application_destroy :: proc(app: ^Application) {
+app_destroy :: proc(app: ^App) {
   if app == nil {
     return
   }
 
-  event_bus_destroy(&app.event_bus)
-
   for _, wnd in app.windows {
     window_destroy(wnd)
+    free(wnd)
   }
 
   delete(app.windows)
 
-  free(app)
+  event_bus_destroy(&app.event_bus)
 }

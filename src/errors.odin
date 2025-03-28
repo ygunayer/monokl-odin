@@ -7,13 +7,13 @@ import "core:io"
 import "core:encoding/json"
 import "core:mem"
 
-Application_InitError :: struct {
+App_InitError :: struct {
   message: string,
 }
 
-Application_Error :: union {
+App_Error :: union {
   Window_Error,
-  Application_InitError,
+  App_InitError,
 }
 
 Media_LoadingError :: struct {

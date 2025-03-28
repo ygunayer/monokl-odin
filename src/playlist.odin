@@ -77,7 +77,7 @@ playlist_try_read_entry :: proc(playlist: ^Playlist, info: os.File_Info) -> (ok:
 }
 
 playlist_open_path :: proc(playlist: ^Playlist, path: string) -> Playlist_Error {
-  log.infof("Opening file or folder at %v", path)
+  log.debugf("Opening file or folder at %v", path)
   info := os.lstat(path, context.temp_allocator) or_return
 
   if !info.is_dir {
@@ -101,7 +101,7 @@ playlist_open_path :: proc(playlist: ^Playlist, path: string) -> Playlist_Error 
 }
 
 playlist_open_files :: proc(playlist: ^Playlist, parent_path: string, files: []os.File_Info) -> Playlist_Error {
-  log.infof("Opening %d file under %s", len(files), parent_path)
+  log.debugf("Opening %d file under %s", len(files), parent_path)
 
   options_loaded, oerr := playlist_options_load(playlist)
   if oerr != nil {

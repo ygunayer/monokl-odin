@@ -38,8 +38,8 @@ main :: proc() {
     mem.tracking_allocator_clear(ta)
   }
 
-  application := new(Application)
-  err := application_init(application)
+  app := new(App)
+  err := app_init(app)
 
   if err != nil {
     log.fatalf("Failed to initialize application: %v", err)
@@ -47,9 +47,11 @@ main :: proc() {
     os.exit(-1)
   }
 
-  application_run_main_loop(application)
+  app_run_main_loop(app)
 
-  application_destroy(application)
+  app_destroy(app)
+
+  free(app)
 
   clear_ta(&ta)
   mem.tracking_allocator_destroy(&ta)
