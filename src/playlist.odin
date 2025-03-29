@@ -13,6 +13,14 @@ import "core:encoding/json"
 import stbi "vendor:stb/image"
 import "vendor:sdl3"
 
+SUPPORTED_EXTENSIONS :: [?]string{
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".bmp",
+  ".gif",
+}
+
 ImageInfo :: struct {
   width: i32,
   height: i32,
@@ -37,11 +45,17 @@ Playlist :: struct {
   entry_count: int,
   options: PlaylistOptions,
   favorites: []string,
+  supported_extensions: map[string]bool,
 }
 
 playlist_init :: proc(playlist: ^Playlist) {
   playlist.entries = make([dynamic]^PlaylistEntry)
   playlist.shown_entries = playlist.entries[:]
+  playlist.supported_extensions = make(map[string]bool)
+
+  for ext in SUPPORTED_EXTENSIONS {
+    playlist.supported_extensions[ext] = true
+  }
 }
 
 playlist_entry_compare_names :: proc(a: ^PlaylistEntry, b: ^PlaylistEntry) -> bool {
@@ -56,12 +70,14 @@ playlist_entry_compare_last_modified_dates :: proc(a: ^PlaylistEntry, b: ^Playli
 playlist_try_read_entry :: proc(playlist: ^Playlist, info: os.File_Info) -> (ok: bool, error: Playlist_Error) {
   w, h, c: i32
 
+  ext := filepath.ext(info.fullpath)
+
   entry := new(PlaylistEntry)
   entry.full_path = strings.clone(info.fullpath)
   entry.filename = strings.clone(info.name)
   entry.last_modified = info.modification_time
   entry.is_favorited = false
-  entry.is_supported = is_supported_file(info)
+  entry.is_supported = ext in playlist.supported_extensions && playlist.supported_extensions[ext]
   entry.is_hidden = is_file_hidden(info)
 
   for fav in playlist.favorites {
@@ -136,11 +152,23 @@ playlist_refresh_shown_entries :: proc(playlist: ^Playlist) {
     return
   }
 
+  previous_entry := playlist_get_current_entry(playlist)
+  should_refocus := previous_entry != nil
+  previous_entry_path := "" if !should_refocus else previous_entry.full_path
+
   delete(playlist.shown_entries)
 
   new_entries := make_dynamic_array([dynamic]^PlaylistEntry, context.temp_allocator)
   for entry in playlist.entries {
     if playlist.options.skip_hidden && entry.is_hidden {
+      continue
+    }
+
+    if playlist.options.only_supported && !entry.is_supported {
+      continue
+    }
+
+    if playlist.options.only_favorites && !entry.is_favorited {
       continue
     }
 
@@ -161,7 +189,11 @@ playlist_refresh_shown_entries :: proc(playlist: ^Playlist) {
 
   playlist.entry_count = len(playlist.shown_entries)
 
-  if playlist.entry_count > 0 {
+  if playlist.entry_count < 1 {
+    return
+  }
+
+  if !should_refocus || playlist_go_to_filename(playlist, previous_entry_path) == nil {
     playlist_go_to_first(playlist)
   }
 }
@@ -172,6 +204,7 @@ playlist_destroy :: proc(playlist: ^Playlist) {
   }
 
   delete(playlist.base_path)
+  delete(playlist.supported_extensions)
 
   for entry in playlist.entries {
     playlist_entry_destroy(entry)

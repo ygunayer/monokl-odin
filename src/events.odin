@@ -38,13 +38,6 @@ ActionType :: enum {
 }
 
 EventType :: enum {
-  PlaylistLoaded,
-  PlaylistUnloaded,
-  PlaylistPositionChanged,
-  PlaylistItemAdded,
-  PlaylistItemRemoved,
-  PlaylistItemChanged,
-
   WindowMaximized,
   WindowMinimized,
   WindowRestored,

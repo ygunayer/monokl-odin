@@ -1,9 +1,12 @@
 package monokl
 
 import "core:os"
+import "core:fmt"
 import "core:log"
 import "core:path/filepath"
+import "core:strings"
 import "vendor:sdl3"
+import sdl3i "vendor:sdl3/image"
 
 Vec2 :: [2]f32
 Vec2i :: [2]i32
@@ -60,7 +63,13 @@ ui_init :: proc(ui: ^Ui, window: ^Window) {
 
   playlist_init(&ui.playlist)
 
-  event_bus_subscribe(&window.app.event_bus, ui, ui_handle_event, { .WindowResized })
+  event_bus_subscribe(&window.app.event_bus, ui, ui_handle_event, {
+    .Action,
+    .WindowResized,
+    .FileDropStarted,
+    .FileDropStopped,
+    .FileDropped,
+  })
 }
 
 ui_set_theme :: proc(ui: ^Ui, theme: Theme) {
@@ -70,13 +79,48 @@ ui_set_theme :: proc(ui: ^Ui, theme: Theme) {
 ui_unload_image :: proc(ui: ^Ui) {
   ui.image.zoom_factor = 1.0
   ui.image.visible = false
+  if ui.image.texture != nil {
+    sdl3.DestroyTexture(ui.image.texture)
+    ui.image.texture = nil
+  }
 }
 
 ui_reload_image :: proc(ui: ^Ui) {
   ui_unload_image(ui)
+  defer ui_update_title(ui)
 
-  
-  // TODO
+  entry := playlist_get_current_entry(&ui.playlist)
+  if entry == nil {
+    return
+  }
+
+  cpath := strings.clone_to_cstring(entry.full_path)
+  defer delete(cpath)
+
+  texture := sdl3i.LoadTexture(ui.window.renderer, cpath)
+  if texture == nil {
+    log.warnf("Failed to load image from path %s due to %s", entry.full_path, sdl3.GetError())
+    return
+  }
+
+  ui.image.texture = texture
+}
+
+ui_update_title :: proc(ui: ^Ui) {
+  entry := playlist_get_current_entry(&ui.playlist)
+  if entry == nil {
+    window_set_title(ui.window, "monokl - No images")
+  }
+
+  new_title := fmt.tprintf(
+    "monokl - %s%d/%d - %s",
+    "♥" if entry.is_favorited else "",
+    ui.playlist.current_index + 1,
+    ui.playlist.entry_count,
+    entry.filename,
+  )
+
+  window_set_title(ui.window, new_title)
 }
 
 ui_handle_event :: proc(ui: ^Ui, event: Event) -> bool {
@@ -86,8 +130,64 @@ ui_handle_event :: proc(ui: ^Ui, event: Event) -> bool {
       log.debugf("Viewport resized: %v", ui.size)
     }
 
-    case .PlaylistLoaded, .PlaylistPositionChanged:
+    case .Action: {
+      payload, ok := event.payload.(ActionPayload)
+      if ok {
+        #partial switch payload.type {
+          case .GoToFirst: {
+            playlist_go_to_first(&ui.playlist)
+            ui_reload_image(ui)
+          }
+
+          case .GoToPrevious: {
+            playlist_advance(&ui.playlist, -1)
+            ui_reload_image(ui)
+          }
+
+          case .GoToNext: {
+            playlist_advance(&ui.playlist, 1)
+            ui_reload_image(ui)
+          }
+
+          case .GoToLast: {
+            playlist_go_to_last(&ui.playlist)
+            ui_reload_image(ui)
+          }
+
+          case .ToggleOnlyFavorites: {
+            ui.playlist.options.only_favorites = true
+            ui_reload_image(ui)
+          }
+        }
+      }
+    }
+
+    case .FileDropStarted: {
+      if !ui.dropping_files {
+        ui.dropping_files = true
+        log.debugf("Drop start")
+      }
+    }
+
+    case .FileDropStopped: {
+      log.debugf("Drop end %v", ui.dropped_files)
+      if ui.dropping_files && len(ui.dropped_files) > 0 {
+        ui_load_playlist(ui, ui.dropped_files[:])
+      }
+      defer clear(&ui.dropped_files)
+      ui.dropping_files = false
+
       ui_reload_image(ui)
+    }
+
+    case .FileDropped: {
+      if ui.dropping_files {
+        payload, ok := event.payload.(FileDropEventPayload)
+        if ok {
+          append(&ui.dropped_files, payload.file)
+        }
+      }
+    }
   }
 
   return true
@@ -103,6 +203,10 @@ ui_render :: proc(ui: ^Ui) {
   )
 
   sdl3.RenderClear(ui.window.renderer)
+
+  if ui.image.visible && ui.image.texture != nil {
+    sdl3.RenderTexture(ui.window.renderer, ui.image.texture, nil, nil)
+  }
 
   sdl3.RenderPresent(ui.window.renderer)
 }
@@ -195,6 +299,14 @@ ui_destroy :: proc(ui: ^Ui) {
   if ui.image.texture != nil {
     sdl3.DestroyTexture(ui.image.texture)
     ui.image.texture = nil
+  }
+
+  if ui.dropped_files != nil {
+    for f in ui.dropped_files {
+      delete(f)
+    }
+    delete(ui.dropped_files)
+    ui.dropped_files = nil
   }
 
   playlist_destroy(&ui.playlist)
