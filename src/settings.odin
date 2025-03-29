@@ -7,6 +7,8 @@ ThemeSetting_System :: struct {}
 ThemeSetting_Dark :: struct {}
 ThemeSetting_Light :: struct {}
 
+Keybinds :: #type map[sdl3.Keycode][dynamic]Keybind
+
 ThemeSettingType :: enum {
   System,
   Dark,
@@ -20,7 +22,7 @@ ThemeSettings :: struct {
 }
 
 InputSettings :: struct {
-  mappings: []ActionMapping,
+  keybinds: Keybinds,
 }
 
 Settings :: struct {
@@ -35,31 +37,38 @@ settings_get_default :: proc() -> Settings {
   settings.theme.type = .System
 
   // Input settings
-  mappings := make([dynamic]ActionMapping)
-  defer delete(mappings)
+  keybinds := make(Keybinds)
 
   when ODIN_OS == .Darwin {
-    append(&mappings, ActionMapping{ type = .OpenNewWindow, trigger = KeyboardActionTrigger { key = sdl3.K_N, meta = true } })
-    append(&mappings, ActionMapping{ type = .CloseWindow, trigger = KeyboardActionTrigger { key = sdl3.K_W, meta = true } })
+    keybind_add(&keybinds, { action = .OpenNewWindow,  key = sdl3.K_N, meta = true })
+    keybind_add(&keybinds, { action = .CloseWindow,  key = sdl3.K_W, meta = true })
   } else {
-    append(&mappings, ActionMapping{ type = .OpenNewWindow, trigger = KeyboardActionTrigger { key = sdl3.K_N, ctrl = true } })
-    append(&mappings, ActionMapping{ type = .CloseWindow, trigger = KeyboardActionTrigger { key = sdl3.K_W, ctrl = true } })
+    keybind_add(&keybinds, { action = .OpenNewWindow,  key = sdl3.K_N, ctrl = true })
+    keybind_add(&keybinds, { action = .CloseWindow,  key = sdl3.K_W, ctrl = true })
   }
 
-  append(&mappings, ActionMapping{ type = .GoToNext, trigger = KeyboardActionTrigger { key = sdl3.K_RIGHT } })
-  append(&mappings, ActionMapping{ type = .GoToPrevious, trigger = KeyboardActionTrigger { key = sdl3.K_LEFT } })
-  append(&mappings, ActionMapping{ type = .GoToFirst, trigger = KeyboardActionTrigger { key = sdl3.K_HOME } })
-  append(&mappings, ActionMapping{ type = .GoToLast, trigger = KeyboardActionTrigger { key = sdl3.K_END } })
-  append(&mappings, ActionMapping{ type = .ResetZoom, trigger = KeyboardActionTrigger { key = sdl3.K_KP_0 } })
-  append(&mappings, ActionMapping{ type = .ZoomIn, trigger = KeyboardActionTrigger { key = sdl3.K_KP_PLUS } })
-  append(&mappings, ActionMapping{ type = .ZoomOut, trigger = KeyboardActionTrigger { key = sdl3.K_KP_MINUS } })
-  append(&mappings, ActionMapping{ type = .Favorite, trigger = KeyboardActionTrigger { key = sdl3.K_F } })
-  append(&mappings, ActionMapping{ type = .Unfavorite, trigger = KeyboardActionTrigger { key = sdl3.K_F, alt = true } })
-  append(&mappings, ActionMapping{ type = .ToggleOnlyFavorites, trigger = KeyboardActionTrigger { key = sdl3.K_F, shift = true } })
+  keybind_add(&keybinds, { action = .GoToNext,  key = sdl3.K_RIGHT })
+  keybind_add(&keybinds, { action = .GoToPrevious,  key = sdl3.K_LEFT })
+  keybind_add(&keybinds, { action = .GoToFirst,  key = sdl3.K_HOME })
+  keybind_add(&keybinds, { action = .GoToLast,  key = sdl3.K_END })
+  keybind_add(&keybinds, { action = .ResetZoom,  key = sdl3.K_KP_0 })
+  keybind_add(&keybinds, { action = .ZoomIn,  key = sdl3.K_KP_PLUS })
+  keybind_add(&keybinds, { action = .ZoomOut,  key = sdl3.K_KP_MINUS })
+  keybind_add(&keybinds, { action = .Favorite,  key = sdl3.K_F })
+  keybind_add(&keybinds, { action = .Unfavorite,  key = sdl3.K_F, alt = true })
+  keybind_add(&keybinds, { action = .ToggleOnlyFavorites,  key = sdl3.K_F, shift = true })
 
-  settings.input.mappings = mappings[:]
+  settings.input.keybinds = keybinds
 
   return settings
+}
+
+keybind_add :: proc(keybinds: ^Keybinds, mapping: Keybind) {
+  if !(mapping.key in keybinds) {
+    keybinds[mapping.key] = make([dynamic]Keybind)
+  }
+
+  append(&keybinds[mapping.key], mapping)
 }
 
 settings_load :: proc() -> (result: Settings, err: Settings_Error) {
@@ -82,4 +91,19 @@ settings_get_theme :: proc(settings: ^Settings) -> Theme {
   }
 
   return Theme_Light
+}
+
+settings_destroy :: proc(settings: ^Settings) {
+  if settings == nil {
+    return
+  }
+
+  if settings.input.keybinds != nil {
+    for k, &v in settings.input.keybinds {
+      delete(v)
+      delete_key(&settings.input.keybinds, k)
+    }
+    delete(settings.input.keybinds)
+    settings.input.keybinds = nil
+  }
 }

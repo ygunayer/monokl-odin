@@ -19,8 +19,6 @@ app_init :: proc(app: ^App) -> App_Error {
     log.errorf("Error loading application settings: %v", settings_err)
   }
 
-  log.debugf("Mappings: %v", settings.input.mappings)
-
   app.settings = settings
   app.windows = make(map[WindowId]^Window)
   event_bus_init(&app.event_bus)
@@ -101,8 +99,18 @@ app_handle_event :: proc(app: ^App, event: sdl3.Event) {
     return
   }
 
-  if translated_event.type == .Action && translated_event.payload.(ActionPayload).type == .OpenNewWindow {
-    app_create_window(app)
+  if translated_event.type == .Action {
+    action_payload, ok := translated_event.payload.(ActionPayload)
+    if ok {
+      log.debugf("App handling action event %v", action_payload)
+      #partial switch action_payload.type {
+        case .OpenNewWindow:
+          app_create_window(app)
+
+        case .CloseWindow:
+          app_close_window(app, action_payload.window_id)
+      }
+    }
   }
 
   event_bus_publish(&app.event_bus, translated_event)
@@ -145,6 +153,8 @@ app_destroy :: proc(app: ^App) {
   if app == nil {
     return
   }
+
+  settings_destroy(&app.settings)
 
   for _, wnd in app.windows {
     window_destroy(wnd)

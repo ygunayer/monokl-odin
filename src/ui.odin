@@ -5,15 +5,27 @@ import "core:log"
 import "core:path/filepath"
 import "vendor:sdl3"
 
+Vec2 :: [2]f32
+Vec2i :: [2]i32
+
 Ui :: struct {
   window: ^Window,
 
-  viewport: Viewport,
   playlist: Playlist,
-  main_image: SceneObject_Image,
+  theme: Theme,
+  size: Vec2i,
+  image: Ui_Image,
 
   dropping_files: bool,
   dropped_files: [dynamic]string,
+}
+
+Ui_Image :: struct {
+  visible: bool,
+  size: Vec2,
+  zoom_factor: f32,
+  position: Vec2,
+  texture: ^sdl3.Texture,
 }
 
 Theme :: struct {
@@ -44,33 +56,55 @@ get_system_theme :: proc() -> Theme {
 
 ui_init :: proc(ui: ^Ui, window: ^Window) {
   ui.window = window
-  viewport_init(&ui.viewport, window.renderer, window.size, settings_get_theme(&window.app.settings))
+  ui.theme = settings_get_theme(&window.app.settings)
+
   playlist_init(&ui.playlist)
 
   event_bus_subscribe(&window.app.event_bus, ui, ui_handle_event, { .WindowResized })
 }
 
 ui_set_theme :: proc(ui: ^Ui, theme: Theme) {
-  ui.viewport.theme = theme
+  ui.theme = theme
+}
+
+ui_unload_image :: proc(ui: ^Ui) {
+  ui.image.zoom_factor = 1.0
+  ui.image.visible = false
 }
 
 ui_reload_image :: proc(ui: ^Ui) {
+  ui_unload_image(ui)
+
   
+  // TODO
 }
 
 ui_handle_event :: proc(ui: ^Ui, event: Event) -> bool {
   #partial switch event.type {
     case .WindowResized: {
-      sdl3.GetWindowSizeInPixels(ui.window.wnd, &ui.viewport.size.x, &ui.viewport.size.y)
-      log.debugf("Viewport resized: %v", ui.viewport.size)
+      sdl3.GetWindowSizeInPixels(ui.window.wnd, &ui.size.x, &ui.size.y)
+      log.debugf("Viewport resized: %v", ui.size)
     }
+
+    case .PlaylistLoaded, .PlaylistPositionChanged:
+      ui_reload_image(ui)
   }
 
   return true
 }
 
 ui_render :: proc(ui: ^Ui) {
-  viewport_render(&ui.viewport)
+  sdl3.SetRenderDrawColorFloat(
+    ui.window.renderer,
+    ui.theme.background_color.r,
+    ui.theme.background_color.g,
+    ui.theme.background_color.b,
+    ui.theme.background_color.a
+  )
+
+  sdl3.RenderClear(ui.window.renderer)
+
+  sdl3.RenderPresent(ui.window.renderer)
 }
 
 ui_unload_playlist :: proc(ui: ^Ui) {
@@ -153,13 +187,15 @@ ui_load_playlist :: proc(ui: ^Ui, paths: []string) -> Playlist_Error {
   return nil
 }
 
-
 ui_destroy :: proc(ui: ^Ui) {
   if ui == nil {
     return
   }
 
-  playlist_destroy(&ui.playlist)
+  if ui.image.texture != nil {
+    sdl3.DestroyTexture(ui.image.texture)
+    ui.image.texture = nil
+  }
 
-  viewport_destroy(&ui.viewport)
+  playlist_destroy(&ui.playlist)
 }

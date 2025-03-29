@@ -5,7 +5,8 @@ import "vendor:sdl3"
 
 KeyModMask :: sdl3.Keymod { .LCTRL, .RCTRL, .LSHIFT, .RSHIFT, .LALT, .RALT, .LGUI, .RGUI }
 
-KeyboardActionTrigger :: struct {
+Keybind :: struct {
+  action: ActionType,
   key: sdl3.Keycode,
   ctrl: bool,
   shift: bool,
@@ -13,13 +14,8 @@ KeyboardActionTrigger :: struct {
   meta: bool,
 }
 
-ActionTrigger :: union {
-  KeyboardActionTrigger,
-}
-
 ActionMapping :: struct {
-  type: ActionType,
-  trigger: ActionTrigger,
+  Keybind,
 }
 
 ActionType :: enum {
@@ -264,31 +260,25 @@ sdl_event_translate :: proc(event: sdl3.Event, settings: ^Settings) -> (e: Event
 }
 
 sdl_event_translate_action_type :: proc(event: sdl3.Event, settings: ^Settings) -> (type: ActionType, ok: bool) {
-  for &mapping in settings.input.mappings {
-    #partial switch event.type {
-      case .KEY_UP, .KEY_DOWN: {
-        switch trigger in mapping.trigger {
-          case KeyboardActionTrigger:
-            if event.key.key != trigger.key {
-              return {}, false
-            }
+  if event.type == .KEY_DOWN {
+    if !(event.key.key in settings.input.keybinds) {
+      return {}, false
+    }
 
+    keymod := event.key.mod & KeyModMask
+    ctrl := (event.key.mod & sdl3.KMOD_CTRL) != {}
+    shift := (event.key.mod & sdl3.KMOD_SHIFT) != {}
+    alt := (event.key.mod & sdl3.KMOD_ALT) != {}
+    meta := (event.key.mod & sdl3.KMOD_GUI) != {}
 
-            keymod := event.key.mod & KeyModMask
-            ctrl := (event.key.mod & sdl3.KMOD_CTRL) != {}
-            shift := (event.key.mod & sdl3.KMOD_SHIFT) != {}
-            alt := (event.key.mod & sdl3.KMOD_ALT) != {}
-            meta := (event.key.mod & sdl3.KMOD_GUI) != {}
+    for mapping in settings.input.keybinds[event.key.key] {
+      matches := mapping.ctrl == ctrl &&
+        mapping.shift == shift &&
+        mapping.alt == alt &&
+        mapping.meta == meta
 
-            matches := trigger.ctrl == ctrl &&
-              trigger.shift == shift &&
-              trigger.alt == alt &&
-              trigger.meta == meta
-
-            if matches {
-              return mapping.type, true
-            }
-        }
+      if matches {
+        return mapping.action, true
       }
     }
   }
