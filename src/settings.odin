@@ -25,13 +25,21 @@ InputSettings :: struct {
   keybinds: Keybinds,
 }
 
+SystemSettings :: struct {
+  max_texture_cache_memory: u32,
+  max_texture_load_threads: u32,
+}
+
 Settings :: struct {
   theme: ThemeSettings,
   input: InputSettings,
+  system: SystemSettings,
 }
 
-settings_get_default :: proc() -> Settings {
-  settings := Settings {}
+settings_load_defaults :: proc(settings: ^Settings) {
+  if settings == nil {
+    return
+  }
 
   // Theme settings
   settings.theme.type = .System
@@ -52,6 +60,7 @@ settings_get_default :: proc() -> Settings {
   keybind_add(&keybinds, { action = .GoToFirst,  key = sdl3.K_HOME })
   keybind_add(&keybinds, { action = .GoToLast,  key = sdl3.K_END })
   keybind_add(&keybinds, { action = .ResetZoom,  key = sdl3.K_KP_0 })
+  keybind_add(&keybinds, { action = .FitImageToScreen,  key = sdl3.K_KP_1 })
   keybind_add(&keybinds, { action = .ZoomIn,  key = sdl3.K_KP_PLUS })
   keybind_add(&keybinds, { action = .ZoomOut,  key = sdl3.K_KP_MINUS })
   keybind_add(&keybinds, { action = .Favorite,  key = sdl3.K_F })
@@ -60,7 +69,10 @@ settings_get_default :: proc() -> Settings {
 
   settings.input.keybinds = keybinds
 
-  return settings
+  // default: 512MB
+  settings.system.max_texture_cache_memory = 512 * 1024 * 1024
+
+  settings.system.max_texture_load_threads = u32(os.processor_core_count() - 1)
 }
 
 keybind_add :: proc(keybinds: ^Keybinds, mapping: Keybind) {
@@ -71,8 +83,9 @@ keybind_add :: proc(keybinds: ^Keybinds, mapping: Keybind) {
   append(&keybinds[mapping.key], mapping)
 }
 
-settings_load :: proc() -> (result: Settings, err: Settings_Error) {
-  return settings_get_default(), nil
+settings_load :: proc(settings: ^Settings) -> Settings_Error {
+  settings_load_defaults(settings)
+  return nil
 }
 
 settings_get_theme :: proc(settings: ^Settings) -> Theme {

@@ -178,7 +178,7 @@ event_bus_update :: proc(bus: ^EventBus) {
 
     for sub in bus.subscribers {
       if event.type in sub.event_types {
-        if sub.handle(sub.handler, event) {
+        if !sub.handle(sub.handler, event) {
           break
         }
       }

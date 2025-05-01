@@ -67,14 +67,10 @@ stack_delete :: proc(stack: ^Stack, id: WindowId) -> bool {
     return false
   }
 
-  // 14, 25, 51, 68, 73 // size=5
-  // remove: 51 // idx=2
-  // 14, 25, 68, 73 
-
-  // 2, 3
   for i in idx..<(stack.size-1) {
     stack.items[i] = stack.items[i + 1]
   }
+
   stack.items[stack.size - 1] = 0
   stack.size -= 1
   return true

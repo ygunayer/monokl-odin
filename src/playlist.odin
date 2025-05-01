@@ -21,12 +21,6 @@ SUPPORTED_EXTENSIONS :: [?]string{
   ".gif",
 }
 
-ImageInfo :: struct {
-  width: i32,
-  height: i32,
-  channels: i32,
-}
-
 PlaylistEntry :: struct {
   is_favorited: bool,
   is_hidden: bool,
@@ -42,8 +36,9 @@ Playlist :: struct {
   entries: [dynamic]^PlaylistEntry,
   shown_entries: []^PlaylistEntry,
   current_index: int,
+  current_entry: ^PlaylistEntry,
   entry_count: int,
-  options: PlaylistOptions,
+  options: ^PlaylistOptions,
   favorites: []string,
   supported_extensions: map[string]bool,
 }
@@ -56,6 +51,9 @@ playlist_init :: proc(playlist: ^Playlist) {
   for ext in SUPPORTED_EXTENSIONS {
     playlist.supported_extensions[ext] = true
   }
+
+  playlist.options = new(PlaylistOptions)
+  playlist.options.favorites = make([dynamic]string)
 }
 
 playlist_entry_compare_names :: proc(a: ^PlaylistEntry, b: ^PlaylistEntry) -> bool {
@@ -71,13 +69,15 @@ playlist_try_read_entry :: proc(playlist: ^Playlist, info: os.File_Info) -> (ok:
   w, h, c: i32
 
   ext := filepath.ext(info.fullpath)
+  lower_ext := strings.to_lower(ext)
+  defer delete(lower_ext)
 
   entry := new(PlaylistEntry)
   entry.full_path = strings.clone(info.fullpath)
   entry.filename = strings.clone(info.name)
   entry.last_modified = info.modification_time
   entry.is_favorited = false
-  entry.is_supported = ext in playlist.supported_extensions && playlist.supported_extensions[ext]
+  entry.is_supported = lower_ext in playlist.supported_extensions && playlist.supported_extensions[lower_ext]
   entry.is_hidden = is_file_hidden(info)
 
   for fav in playlist.favorites {
@@ -145,21 +145,17 @@ playlist_open_files :: proc(playlist: ^Playlist, parent_path: string, files: []o
   return nil
 }
 
-playlist_refresh_shown_entries :: proc(playlist: ^Playlist) {
-  num_entries := len(playlist.entries)
-  playlist.entry_count = num_entries
-  if num_entries < 1 {
-    return
+playlist_refresh_shown_entries :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
+  playlist.entry_count = 0
+  if len(playlist.entries) < 1 {
+    playlist.current_entry = nil
+    return nil
   }
 
-  previous_entry := playlist_get_current_entry(playlist)
-  should_refocus := previous_entry != nil
-  previous_entry_path := "" if !should_refocus else previous_entry.full_path
-
-  delete(playlist.shown_entries)
+  prev_path, had_prev_entry := playlist_get_current_filename(playlist)
 
   new_entries := make_dynamic_array([dynamic]^PlaylistEntry, context.temp_allocator)
-  for entry in playlist.entries {
+  for &entry in playlist.entries {
     if playlist.options.skip_hidden && entry.is_hidden {
       continue
     }
@@ -175,8 +171,11 @@ playlist_refresh_shown_entries :: proc(playlist: ^Playlist) {
     append(&new_entries, entry)
   }
 
-  playlist.shown_entries = playlist.entries[:]
-  switch playlist.options.sort_order {
+  delete(playlist.shown_entries)
+
+  playlist.shown_entries = slice.clone(new_entries[:])
+  defer delete(new_entries)
+  #partial switch playlist.options.sort_order {
     case .Name:
       slice.sort_by(playlist.shown_entries, playlist_entry_compare_names)
     case .NameDesc:
@@ -190,12 +189,16 @@ playlist_refresh_shown_entries :: proc(playlist: ^Playlist) {
   playlist.entry_count = len(playlist.shown_entries)
 
   if playlist.entry_count < 1 {
-    return
+    playlist.current_entry = nil
+    return nil
   }
 
-  if !should_refocus || playlist_go_to_filename(playlist, previous_entry_path) == nil {
-    playlist_go_to_first(playlist)
+  entry := nil if !had_prev_entry else playlist_go_to_filename(playlist, prev_path)
+  if entry != nil {
+    return entry
   }
+
+  return playlist_go_to_first(playlist)
 }
 
 playlist_destroy :: proc(playlist: ^Playlist) {
@@ -203,31 +206,34 @@ playlist_destroy :: proc(playlist: ^Playlist) {
     return
   }
 
+  if playlist.options != nil {
+    playlist_options_destroy(playlist.options)
+    free(playlist.options)
+    playlist.options = nil
+  }
+
   delete(playlist.base_path)
-  delete(playlist.supported_extensions)
+
+  if playlist.supported_extensions != nil {
+    delete(playlist.supported_extensions)
+    playlist.supported_extensions = nil
+  }
+
+  delete(playlist.shown_entries)
 
   for entry in playlist.entries {
     playlist_entry_destroy(entry)
     free(entry)
   }
-
   delete(playlist.entries)
 }
 
-playlist_get_current_entry :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
-  if playlist == nil {
-    return nil
+playlist_get_current_filename :: proc(playlist: ^Playlist) -> (filename: string, ok: bool) {
+  if playlist.current_entry == nil {
+    return "", false
   }
 
-  if playlist.current_index < 0 || playlist.current_index > len(playlist.shown_entries) {
-    return nil
-  }
-
-  if playlist.entry_count < 1 {
-    return nil
-  }
-
-  return playlist.shown_entries[playlist.current_index]
+  return playlist.current_entry.filename, true
 }
 
 @(private)
@@ -236,7 +242,8 @@ _playlist_make_current :: proc(playlist: ^Playlist, idx: int) -> ^PlaylistEntry 
     return nil
   }
   playlist.current_index = idx
-  return playlist.shown_entries[idx]
+  playlist.current_entry = playlist.shown_entries[idx]
+  return playlist.current_entry
 }
 
 playlist_advance :: proc(playlist: ^Playlist, by: int) -> ^PlaylistEntry {
@@ -255,33 +262,35 @@ playlist_advance :: proc(playlist: ^Playlist, by: int) -> ^PlaylistEntry {
 }
 
 playlist_go_to_first :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
-  if len(playlist.shown_entries) < 1 {
+  if playlist.entry_count < 1 {
+    playlist.current_entry = nil
     return nil
   }
   return _playlist_make_current(playlist, 0)
 }
 
 playlist_go_to_last :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
-  num_entries := len(playlist.shown_entries)
-  if num_entries < 1 {
+  if playlist.entry_count < 1 {
+    playlist.current_entry = nil
     return nil
   }
-  return _playlist_make_current(playlist, num_entries - 1)
+  return _playlist_make_current(playlist, playlist.entry_count - 1)
 }
 
 playlist_go_to_filename :: proc(playlist: ^Playlist, filename: string) -> ^PlaylistEntry {
-  num_entries := len(playlist.shown_entries)
-  if num_entries < 1 {
+  if playlist.entry_count < 1 {
+    playlist.current_entry = nil
     return nil
   }
 
-  for i in 0..<num_entries {
+  for i in 0..<playlist.entry_count {
     entry := playlist.shown_entries[i]
     if entry.filename == filename {
       return _playlist_make_current(playlist, i)
     }
   }
 
+  playlist.current_entry = nil
   return nil
 }
 
@@ -293,4 +302,9 @@ playlist_entry_destroy :: proc(entry: ^PlaylistEntry) {
   delete(entry.filename)
   delete(entry.extension)
   delete(entry.full_path)
+}
+
+playlist_toggle_only_favorites :: proc(playlist: ^Playlist) -> ^PlaylistEntry {
+  playlist.options.only_favorites = !playlist.options.only_favorites
+  return playlist_refresh_shown_entries(playlist)
 }

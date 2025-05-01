@@ -23,10 +23,10 @@
 			"working_dir": "${project_path}",
 			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
 			"windows": {
-				"cmd": ["powershell.exe", "${project_path}\\build.ps1", "run"],
+				"cmd": ["python3.exe", "${project_path}\\build.py", "run"],
 			},
 			"linux": {
-				"cmd": ["./build.sh", "run"],
+				"cmd": ["./build.py", "run"],
 			},
 		},
 		{
@@ -35,10 +35,10 @@
 			"working_dir": "${project_path}",
 			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
 			"windows": {
-				"cmd": ["powershell.exe", "${project_path}\\build.ps1", "build"],
+				"cmd": ["python3.exe", "${project_path}\\build.py", "compile"],
 			},
 			"linux": {
-				"cmd": ["./build.sh", "build"],
+				"cmd": ["./build.py", "compile"],
 			},
 		},
 	],

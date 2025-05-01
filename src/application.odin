@@ -8,20 +8,27 @@ import "vendor:sdl3"
 
 App :: struct {
   windows: map[WindowId]^Window,
-  settings: Settings,
-  window_stack: Stack,
-  event_bus: EventBus,
+  settings: ^Settings,
+  window_stack: ^Stack,
+  event_bus: ^EventBus,
+  texture_cache: ^TextureCache,
 }
 
 app_init :: proc(app: ^App) -> App_Error {
-  settings, settings_err := settings_load()
+  app.settings = new(Settings)
+  app.window_stack = new(Stack)
+  app.event_bus = new(EventBus)
+  app.windows = make(map[WindowId]^Window)
+
+  app.texture_cache = new(TextureCache)
+  texture_cache_init(app.texture_cache, app.settings.system.max_texture_cache_memory, app.settings.system.max_texture_load_threads)
+
+  settings_err := settings_load(app.settings)
   if settings_err != nil {
     log.errorf("Error loading application settings: %v", settings_err)
   }
 
-  app.settings = settings
-  app.windows = make(map[WindowId]^Window)
-  event_bus_init(&app.event_bus)
+  event_bus_init(app.event_bus)
 
   init_success := sdl3.Init(sdl3.INIT_VIDEO)
   if !init_success {
@@ -34,7 +41,7 @@ app_init :: proc(app: ^App) -> App_Error {
   }
 
   if len(os.args) > 1 {
-    ui_load_playlist(&window.ui, os.args[1:])
+    ui_load_playlist(window.ui, os.args[1:])
   }
 
   return nil
@@ -52,7 +59,7 @@ app_init :: proc(app: ^App) -> App_Error {
 }
 
 app_get_last_focused_window :: proc(app: ^App) -> ^Window {
-  id, found := stack_peek(&app.window_stack)
+  id, found := stack_peek(app.window_stack)
 
   if !found {
     return nil
@@ -70,7 +77,7 @@ app_close_window :: proc(app: ^App, window_id: WindowId) {
     return
   }
 
-  stack_delete(&app.window_stack, window_id)
+  stack_delete(app.window_stack, window_id)
 
   window := app.windows[window_id]
   window_destroy(window)
@@ -89,12 +96,12 @@ app_handle_event :: proc(app: ^App, event: sdl3.Event) {
     if app.settings.theme.type == .System {
       theme := get_system_theme()
       for _, &w in app.windows {
-        ui_set_theme(&w.ui, theme)
+        ui_set_theme(w.ui, theme)
       }
     }
   }
 
-  translated_event, is_translated := sdl_event_translate(event, &app.settings)
+  translated_event, is_translated := sdl_event_translate(event, app.settings)
   if !is_translated {
     return
   }
@@ -102,7 +109,6 @@ app_handle_event :: proc(app: ^App, event: sdl3.Event) {
   if translated_event.type == .Action {
     action_payload, ok := translated_event.payload.(ActionPayload)
     if ok {
-      log.debugf("App handling action event %v", action_payload)
       #partial switch action_payload.type {
         case .OpenNewWindow:
           app_create_window(app)
@@ -113,7 +119,7 @@ app_handle_event :: proc(app: ^App, event: sdl3.Event) {
     }
   }
 
-  event_bus_publish(&app.event_bus, translated_event)
+  event_bus_publish(app.event_bus, translated_event)
 }
 
 app_run_main_loop :: proc(app: ^App) {
@@ -131,7 +137,7 @@ app_run_main_loop :: proc(app: ^App) {
       app_handle_event(app, sdl_event)
     }
 
-    event_bus_update(&app.event_bus)
+    event_bus_update(app.event_bus)
 
     elapsed := time.duration_milliseconds(time.tick_since(last_rendered))
 
@@ -154,7 +160,28 @@ app_destroy :: proc(app: ^App) {
     return
   }
 
-  settings_destroy(&app.settings)
+  if app.settings != nil {
+    settings_destroy(app.settings)
+    free(app.settings)
+    app.settings = nil
+  }
+
+  if app.event_bus != nil {
+    event_bus_destroy(app.event_bus)
+    free(app.event_bus)
+    app.event_bus = nil
+  }
+
+  if app.texture_cache != nil {
+    texture_cache_destroy(app.texture_cache)
+    free(app.texture_cache)
+    app.texture_cache = nil
+  }
+
+  if app.window_stack != nil {
+    free(app.window_stack)
+    app.window_stack = nil
+  }
 
   for _, wnd in app.windows {
     window_destroy(wnd)
@@ -162,6 +189,4 @@ app_destroy :: proc(app: ^App) {
   }
 
   delete(app.windows)
-
-  event_bus_destroy(&app.event_bus)
 }

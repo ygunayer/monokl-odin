@@ -34,7 +34,7 @@ Window :: struct {
   position: Vector2i,
   maximized: bool,
   has_focus: bool,
-  ui: Ui,
+  ui: ^Ui,
   event_sub_id: SubscriberId,
 }
 
@@ -119,14 +119,16 @@ window_init_with_settings :: proc(app: ^App, options: WindowOptions) -> (w: ^Win
   window.renderer = renderer
   sdl3.SetWindowPosition(wnd, options.initial_position.x, options.initial_position.y)
 
+
   sdl3.GetWindowSize(wnd, &window.size.x, &window.size.y)
   sdl3.GetWindowPosition(wnd, &window.position.x, &window.position.y)
 
-  event_bus_subscribe(&app.event_bus, window, window_handle_event, {
+  event_bus_subscribe(app.event_bus, window, window_handle_event, {
     .WindowResized,
   })
 
-  ui_init(&window.ui, window)
+  window.ui = new(Ui)
+  ui_init(window.ui, window)
 
   return window, nil
 }
@@ -141,12 +143,13 @@ window_set_title :: proc(window: ^Window, title: string) {
   if window == nil {
     return
   }
-  title_string := strings.clone_to_cstring(title, context.temp_allocator)
+  title_string := strings.clone_to_cstring(title)
+  defer delete(title_string)
   sdl3.SetWindowTitle(window.wnd, title_string)
 }
 
 window_render :: proc(window: ^Window) {
-  ui_render(&window.ui)
+  ui_render(window.ui)
 }
 
 window_handle_event :: proc(window: ^Window, event: Event) -> bool {
@@ -183,9 +186,7 @@ window_handle_event :: proc(window: ^Window, event: Event) -> bool {
 }
 
 window_destroy :: proc(window: ^Window) {
-  event_bus_unsubscribe(&window.app.event_bus, window.event_sub_id)
-
-  ui_destroy(&window.ui)
+  event_bus_unsubscribe(window.app.event_bus, window.event_sub_id)
 
   if window.renderer != nil {
     sdl3.DestroyRenderer(window.renderer)
@@ -195,5 +196,11 @@ window_destroy :: proc(window: ^Window) {
   if window.wnd != nil {
     sdl3.DestroyWindow(window.wnd)
     window.wnd = nil
+  }
+
+  if window.ui != nil {
+    ui_destroy(window.ui)
+    free(window.ui)
+    window.ui = nil
   }
 }

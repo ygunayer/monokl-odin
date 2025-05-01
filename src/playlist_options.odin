@@ -23,7 +23,7 @@ PlaylistOptions :: struct {
   skip_hidden: bool,
   only_favorites: bool,
   only_supported: bool,
-  sort_order: Maybe(PlaylistSortOrder),
+  sort_order: PlaylistSortOrder,
   favorites: [dynamic]string,
 }
 
@@ -47,7 +47,13 @@ playlist_options_destroy :: proc(opts: ^PlaylistOptions) {
     return
   }
 
-  delete(opts.favorites)
+  if opts.favorites != nil {
+    for fav in opts.favorites {
+      delete(fav)
+    }
+    delete(opts.favorites)
+    opts.favorites = nil
+  }
 }
 
 playlist_options_load :: proc (playlist: ^Playlist) -> (ok: bool, error: PlaylistOptions_Error) {
@@ -61,7 +67,12 @@ playlist_options_load :: proc (playlist: ^Playlist) -> (ok: bool, error: Playlis
   bytes, is_ok := os.read_entire_file_from_handle(fd, context.temp_allocator)
 
   if is_ok {
-    playlist_options_read(&playlist.options, bytes) or_return
+    playlist_options_read(playlist.options, bytes) or_return
+  } else {
+    playlist.options.only_supported = true
+    playlist.options.only_favorites = false
+    playlist.options.skip_hidden = true
+    clear(&playlist.options.favorites)
   }
 
   return is_ok, nil
