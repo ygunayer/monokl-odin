@@ -7,7 +7,7 @@ ThemeSetting_System :: struct {}
 ThemeSetting_Dark :: struct {}
 ThemeSetting_Light :: struct {}
 
-Keybinds :: #type map[sdl3.Keycode][dynamic]Keybind
+Keybinds :: map[sdl3.Keycode][dynamic]Keybind
 
 ThemeSettingType :: enum {
   System,
@@ -54,6 +54,8 @@ settings_load_defaults :: proc(settings: ^Settings) {
     keybind_add(&keybinds, { action = .OpenNewWindow,  key = sdl3.K_N, ctrl = true })
     keybind_add(&keybinds, { action = .CloseWindow,  key = sdl3.K_W, ctrl = true })
   }
+
+  keybind_add(&keybinds, { action = .CloseWindow, key = sdl3.K_ESCAPE })
 
   keybind_add(&keybinds, { action = .GoToNext,  key = sdl3.K_RIGHT })
   keybind_add(&keybinds, { action = .GoToPrevious,  key = sdl3.K_LEFT })

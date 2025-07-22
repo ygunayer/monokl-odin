@@ -6,6 +6,8 @@ import "core:thread"
 import "core:mem"
 import "core:strings"
 import "core:sync"
+import "core:container/lru"
+import "core:sync/chan"
 import "vendor:sdl3"
 import sdl3i "vendor:sdl3/image"
 
@@ -21,14 +23,12 @@ TextureCache_Entry :: struct {
 }
 
 TextureCache :: struct {
-  entries: map[string]TextureCache_Entry,
-  pending_tasks: [dynamic]^TextureCache_LoaderTaskData,
+  cache: lru.Cache(string, sdl3.Texture),
+  tasks_channel: chan.Chan(string),
+  mutex: ^sync.RW_Mutex,
   thread_pool: ^thread.Pool,
   mutex_allocator: mem.Mutex_Allocator,
   allocator: mem.Allocator,
-  size: u32,
-  capacity: u32,
-  mutex: ^sync.RW_Mutex,
 }
 
 texture_cache_init :: proc(cache: ^TextureCache, capacity: u32, max_threads: u32) {
@@ -37,14 +37,14 @@ texture_cache_init :: proc(cache: ^TextureCache, capacity: u32, max_threads: u32
   mem.mutex_allocator_init(&cache.mutex_allocator, context.allocator)
   cache.allocator = mem.mutex_allocator(&cache.mutex_allocator)
 
+  cache.tasks_channel = chan.create_buffered(string, )
+
   cache.thread_pool = new(thread.Pool)
-  cache.entries = make(map[string]TextureCache_Entry)
   cache.mutex = new(sync.RW_Mutex)
-  cache.pending_tasks = make([dynamic]^TextureCache_LoaderTaskData)
-  cache.size = 0
-  cache.capacity = capacity
+  lru.init(&cache.cache, int(capacity), cache.allocator)
 
   thread.pool_init(cache.thread_pool, cache.allocator, int(max_threads))
+  thread.pool_add_task(cache.thread_pool, cache.allocator, )
 
   log.debugf("Initialized texture cache with a capacity of %d bytes", capacity)
 }
@@ -91,6 +91,7 @@ texture_cache_destroy :: proc(cache: ^TextureCache) {
 texture_cache_load_all :: proc(cache: ^TextureCache, renderer: ^sdl3.Renderer, file_paths: []string) {
   // TODO: not yet implemented
   return
+
   // assert(cache != nil)
   // assert(renderer != nil)
 

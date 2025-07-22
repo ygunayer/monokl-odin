@@ -3,7 +3,7 @@
 	[
 		{
 			"path": ".",
-		}
+		},
 	],
 	"settings":
 	{
@@ -51,11 +51,11 @@
 			"cwd": "${project_path}",
 			"terminal": "console",
 			"windows": {
-				"program": "${project_path}/bin/monokl.exe"
+				"program": "${project_path}/bin/monokl.exe",
 			},
 			"linux": {
-				"program": "${project_path}/bin/monokl"
-			}
+				"program": "${project_path}/bin/monokl",
+			},
 		}
 	],
 }
