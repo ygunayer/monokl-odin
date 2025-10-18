@@ -1,14 +1,26 @@
 package monokl
 
 import "core:fmt"
-import sdl "vendor:sdl3"
-import "core:c"
 import "core:log"
 import "core:os"
 import "core:mem"
-import "core:time"
+
+run :: proc() -> Error {
+  platform_init() or_return
+  defer platform_destroy()
+
+  app: App
+  defer app_destroy(&app)
+
+  app_init(&app) or_return
+
+  return app_run(&app)
+}
 
 main :: proc() {
+  exit_code := 0
+  defer os.exit(exit_code)
+
   logger := log.create_console_logger()
   context.logger = logger
 
@@ -36,23 +48,15 @@ main :: proc() {
     }
 
     mem.tracking_allocator_clear(ta)
+    log.debugf("Tracking allocator cleared")
   }
 
-  app := new(App)
-  err := app_init(app)
+  defer mem.tracking_allocator_destroy(&ta)
+  defer clear_ta(&ta)
 
+  err := run()
   if err != nil {
-    log.fatalf("Failed to initialize application: %v", err)
-    sdl.Quit()
-    os.exit(-1)
+    log.fatalf("%s", error_stringify(&err))
+    exit_code = 1
   }
-
-  app_run_main_loop(app)
-
-  app_destroy(app)
-
-  free(app)
-
-  clear_ta(&ta)
-  mem.tracking_allocator_destroy(&ta)
 }
