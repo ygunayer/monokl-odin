@@ -22,11 +22,9 @@
 			"selector": "source.odin",
 			"working_dir": "${project_path}",
 			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
+			"cmd": ["./build.py", "run"],
 			"windows": {
 				"cmd": ["python3.exe", "${project_path}\\build.py", "run"],
-			},
-			"linux": {
-				"cmd": ["./build.py", "run"],
 			},
 		},
 		{
@@ -34,11 +32,9 @@
 			"selector": "source.odin",
 			"working_dir": "${project_path}",
 			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
+			"cmd": ["./build.py", "compile"],
 			"windows": {
 				"cmd": ["python3.exe", "${project_path}\\build.py", "compile"],
-			},
-			"linux": {
-				"cmd": ["./build.py", "compile"],
 			},
 		},
 	],
@@ -50,11 +46,9 @@
 			"request": "launch",
 			"cwd": "${project_path}",
 			"terminal": "console",
+			"program": "${project_path}/bin/monokl",
 			"windows": {
 				"program": "${project_path}/bin/monokl.exe",
-			},
-			"linux": {
-				"program": "${project_path}/bin/monokl",
 			},
 		}
 	],
