@@ -11,9 +11,7 @@ run :: proc() -> Error {
 
   app: App
   defer app_destroy(&app)
-
   app_init(&app) or_return
-
   return app_run(&app)
 }
 

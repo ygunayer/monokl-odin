@@ -75,19 +75,20 @@ def run():
     os.system(bin_path)
 
 def copy_libs():
-    odin_root = os.path.dirname(ODIN_EXE_PATH)
-    files_to_copy = [
-        os.path.join(odin_root, "vendor", "sdl3", "SDL3.dll"),
-        os.path.join(odin_root, "vendor", "sdl3", "SDL3.lib"),
-        os.path.join(odin_root, "vendor", "sdl3", "image", "SDL3_image.dll"),
-        os.path.join(odin_root, "vendor", "sdl3", "image", "SDL3_image.lib"),
-    ]
+    return
+    # odin_root = os.path.dirname(ODIN_EXE_PATH)
+    # files_to_copy = [
+    #     os.path.join(odin_root, "vendor", "sdl3", "SDL3.dll"),
+    #     os.path.join(odin_root, "vendor", "sdl3", "SDL3.lib"),
+    #     os.path.join(odin_root, "vendor", "sdl3", "image", "SDL3_image.dll"),
+    #     os.path.join(odin_root, "vendor", "sdl3", "image", "SDL3_image.lib"),
+    # ]
 
-    for file in files_to_copy:
-        filename = os.path.basename(file)
-        shutil.copyfile(file, f"./bin/{filename}")
+    # for file in files_to_copy:
+    #     filename = os.path.basename(file)
+    #     shutil.copyfile(file, f"./bin/{filename}")
 
-    print("Libraries copied to binary directory")
+    # print("Libraries copied to binary directory")
 
 def copy_assets():
     # Comment out to copy assets to your bin path

@@ -5,3 +5,5 @@
 *.rdi
 
 *.sublime-workspace
+
+.DS_Store

@@ -1,6 +1,8 @@
 package monokl
 
 import "core:fmt"
+import "core:c"
+import "vendor:glfw"
 import "base:runtime"
 
 BaseError :: struct {
@@ -12,24 +14,22 @@ CommonError :: struct {
   message: string,
 }
 
-Win32Error :: struct {
-  using _: BaseError,
-  message: string,
-  error_code: u32,
-}
-
 Error :: union {
   CommonError,
-  Win32Error,
+  PlatformError,
+  PlaylistError,
 }
 
 error_stringify :: proc(error: ^Error) -> string {
-  switch err in error {
+  switch &err in error {
     case CommonError:
       return fmt.tprintf("Error @ %v - %s", err.location, err.message)
 
-    case Win32Error:
-      return fmt.tprintf("Win32 Error @ %v - %s (0x%x)", err.location, err.message, err.error_code)
+    case PlatformError:
+      return platform_error_stringify(&err)
+
+    case PlaylistError:
+      return playlist_error_stringify(&err)
   }
 
   return "Unknown error"
