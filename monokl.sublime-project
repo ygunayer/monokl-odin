@@ -1,0 +1,55 @@
+{
+	"folders":
+	[
+		{
+			"path": ".",
+		}
+	],
+	"settings":
+	{
+		"LSP":
+		{
+			"odin":
+			{
+				"enabled": true,
+			},
+		},
+	},
+	"build_systems":
+	[
+		{
+			"name": "Odin - Run Debug",
+			"selector": "source.odin",
+			"working_dir": "${project_path}",
+			"file_regex": "(\\S+)\\(([0-9]+):([0-9]+)\\)",
+			"cmd": ["python3", "./build.py", "run"],
+			"windows": {
+				"cmd": ["python3.exe", "${project_path}\\build.py", "run"],
+			}
+		},
+		{
+			"name": "Odin - Build Debug",
+			"selector": "source.odin",
+			"working_dir": "${project_path}",
+			"file_regex": "(\\S+)\\(([0-9]+):([0-9]+)\\)",
+			"cmd": ["./build.py", "compile"],
+			"windows": {
+				"cmd": ["python3.exe", "${project_path}\\build.py", "compile"],
+			}
+		},
+	],
+	"debugger_configurations":
+	[
+		{
+			"name": "Launch - LLDB",
+			"type": "lldb",
+			"request": "launch",
+			"cwd": "${project_path}",
+			"terminal": "console",
+			"program": "${project_path}/bin/monokl",
+			"windows": {
+				"program": "${project_path}/bin/monokl.exe"
+			}
+		}
+	],
+}

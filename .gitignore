@@ -1,0 +1,10 @@
+/bin
+
+*.exe
+*.rdi
+
+*.sublime-workspace
+
+.venv
+
+vendor/clay
