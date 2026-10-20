@@ -28,7 +28,7 @@ sdl_last_error :: proc(message: string, location := #caller_location) -> Error {
 }
 
 error_string :: #force_inline proc(error: Error) -> string {
-  switch &err in error {
+  switch err in error {
     case CommonError:
       return fmt.aprintf("Error @ %v - %s", err.location, err.message)
   }

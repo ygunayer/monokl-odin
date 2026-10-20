@@ -12,22 +12,9 @@ when ODIN_DEBUG {
 }
 
 main :: proc() {
-  // TODO handle logs
-  log_file, log_file_error := os.open("output.log", {.Write, .Create})
-  if log_file_error != nil {
-    fmt.eprintfln("Failed to open the log file: %v", log_file_error)
-    os.exit(1)
-  }
-  defer os.close(log_file)
-
-  file_logger := log.create_file_logger(log_file)
   console_logger := log.create_console_logger()
-  multi_logger := log.create_multi_logger(file_logger, console_logger)
   defer log.destroy_console_logger(console_logger)
-  defer log.destroy_file_logger(file_logger)
-  defer log.destroy_multi_logger(multi_logger)
-
-  context.logger = multi_logger
+  context.logger = console_logger
 
   exit_code := 0
   defer os.exit(exit_code)
@@ -62,7 +49,7 @@ main :: proc() {
   defer mem.tracking_allocator_destroy(&ta)
   defer clear_ta(&ta)
 
-  err := platform_run()
+  err := app_run()
   if err != nil {
     log.fatalf("%s", error_string(err))
     exit_code = 1
