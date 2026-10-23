@@ -7,7 +7,7 @@ import "vendor:sdl3"
 import sdli "vendor:sdl3/image"
 
 App :: struct {
-  windows: map[sdl3.WindowID]Window,
+  windows: map[sdl3.WindowID]AppWindow,
   dropped_files: map[sdl3.WindowID][dynamic]string,
   image_cache: ImageCache,
 }
@@ -25,12 +25,12 @@ app_init :: proc() -> Error {
     return sdl_last_error("Failed to initialize app")
   }
 
-  app.windows = make(map[sdl3.WindowID]Window)
+  app.windows = make(map[sdl3.WindowID]AppWindow)
   app.dropped_files = make(map[sdl3.WindowID][dynamic]string)
 
   image_cache_init(&app.image_cache)
 
-  app_open_window() or_return
+  app_window_open() or_return
 
   return nil
 }
@@ -79,10 +79,14 @@ app_run :: proc() -> Error {
 
         case .KEY_DOWN: {
           if !event.key.repeat && is_key_down(event, sdl3.K_N, {.LCTRL}) {
-            app_open_window();
+            app_window_open()
           }
           if !event.key.repeat && is_key_down(event, sdl3.K_W, {.LCTRL}) {
-            app_close_window(event.window.windowID);
+            app_close_window(event.window.windowID)
+          }
+
+          if event.key.windowID in app.windows {
+            app_window_handle_event(&app.windows[event.key.windowID], event)
           }
         }
 
@@ -113,11 +117,8 @@ app_run :: proc() -> Error {
       }
     }
 
-    for _, window in &app.windows {
-      sdl3.SetRenderDrawColor(window.rnd, 38, 38, 38, 255)
-      sdl3.RenderClear(window.rnd)
-
-      sdl3.RenderPresent(window.rnd)
+    for _, &window in &app.windows {
+      app_window_update(&window)
     }
   }
 
@@ -148,8 +149,8 @@ app_open_file_paths :: proc(file_paths: []string) -> Error {
   }
 
   for folder_path, focused_file in folders_and_files {
-    target_window: ^Window
-    first_empty: ^Window
+    target_window: ^AppWindow
+    first_empty: ^AppWindow
     for _, &window in &app.windows {
       if !window.loaded {
         if first_empty == nil {
@@ -169,55 +170,18 @@ app_open_file_paths :: proc(file_paths: []string) -> Error {
     }
 
     if target_window == nil {
-      id := app_open_window(folder_path) or_return
+      id := app_window_open(folder_path) or_return
       target_window = &app.windows[id]
     } else {
-      window_load_folder(target_window, folder_path)
+      app_window_load_folder(target_window, folder_path)
     }
 
     if focused_file != "" {
-      window_go_to_file(target_window, focused_file)
+      app_window_go_to_file(target_window, focused_file)
     }
   }
 
   return nil
-}
-
-app_open_window :: proc {
-  app_open_window_empty,
-  app_open_window_at_folder,
-}
-
-app_open_window_empty :: proc() -> (sdl3.WindowID, Error) {
-  wnd: ^sdl3.Window
-  rnd: ^sdl3.Renderer
-
-  if !sdl3.CreateWindowAndRenderer("monokl", 1920, 1080, {.RESIZABLE}, &wnd, &rnd) {
-    return 0, sdl_last_error("Failed to create window")
-  }
-
-  sdl3.SetWindowPosition(wnd, sdl3.WINDOWPOS_CENTERED, sdl3.WINDOWPOS_CENTERED)
-  sdl3.ShowWindow(wnd)
-
-  id := sdl3.GetWindowID(wnd)
-
-  app.windows[id] = Window {
-    id = id,
-    rnd = rnd,
-    wnd = wnd,
-  }
-
-  return id, nil
-}
-
-app_open_window_at_folder :: proc(folder_path: string) -> (sdl3.WindowID, Error) {
-  id, err := app_open_window_empty()
-  if err != nil {
-    return 0, err
-  }
-  window := &app.windows[id]
-  window_load_folder(window, folder_path)
-  return id, nil
 }
 
 app_close_window :: proc(id: sdl3.WindowID) {
@@ -227,10 +191,15 @@ app_close_window :: proc(id: sdl3.WindowID) {
 
   window := &app.windows[id]
 
-  window_unload_folder(window)
-
-  sdl3.DestroyWindow(window.wnd)
-  sdl3.DestroyRenderer(window.rnd)
+  app_window_destroy(window)
 
   delete_key(&app.windows, id)
+}
+
+app_request_load_files :: proc(full_paths: []string) {
+  image_cache_request_load(&app.image_cache, full_paths)
+}
+
+app_get_image_entry :: proc(full_path: string) -> (^Image, bool) {
+  return image_cache_get(&app.image_cache, full_path)
 }

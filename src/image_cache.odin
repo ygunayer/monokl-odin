@@ -1,40 +1,104 @@
 package monokl
 
-import "core:sync/chan"
+import "core:os"
+import "core:mem"
+import "core:log"
+import "core:sync"
+import "core:fmt"
+import "core:strings"
+import "core:thread"
 import "vendor:sdl3"
+import sdl3i "vendor:sdl3/image"
 
-ImageCacheEntryLoadState :: enum {
-  NotLoaded,
+ImageLoadState :: enum {
+  Queued,
   Loading,
   Failed,
   Loaded,
 }
 
-
-ImageLoadResult_Success :: struct {
-
-}
-
-ImageWorkerState :: struct {
-  chan_work: chan.Chan(string, .Recv),
-  // chan_result: chan.Chan(([]byte, Error), .Send)
-}
-
-ImageCacheEntry :: struct {
+Image :: struct {
   full_path: string,
-  texture: ^sdl3.Texture,
-  state: ImageCacheEntryLoadState,
-  load_error: Error,
+  surface: ^sdl3.Surface,
+  state: ImageLoadState,
 }
 
 ImageCache :: struct {
-  images: map[string]ImageCacheEntry,
-  chan_work: chan.Chan(string),
-  chan_results: chan.Chan()
+  result_mutex: sync.Mutex,
+  images: map[string]Image,
+  work_queue: ^AsyncWorkQueue(^ImageCache, string, Image),
 }
 
-image_cache_init :: proc(ic: ^ImageCache) {
-  ic.images = make(map[string]ImageCacheEntry)
+_load_image :: proc(full_path: string) -> (^sdl3.Surface, Error) {
+  data, err := os.read_entire_file(full_path, context.allocator)
+  defer delete(data)
+  if err != nil {
+    return {}, common_error(fmt.tprintf("OS Error %v", err))
+  }
+
+  cpath := strings.clone_to_cstring(full_path)
+  defer delete(cpath)
+
+  img := sdl3i.Load(cpath)
+  defer sdl3.DestroySurface(img)
+  if img == nil {
+    return {}, sdl_last_error("Image load failure")
+  }
+
+  new_img := sdl3.ConvertSurface(img, .RGBA32)
+  if new_img == nil {
+    return {}, sdl_last_error("Failed to convert image to RGBA32")
+  }
+  return new_img, nil
+}
+
+_fn_handle_work :: proc(ic: ^ImageCache, full_path: string) -> Image {
+  surface, err := _load_image(full_path)
+  if err != nil {
+    log.errorf("Failed to load image from path %s due to %v", full_path, err)
+    return {
+      full_path = full_path,
+      state = .Failed,
+    }
+  }
+
+  return {
+    full_path = full_path,
+    surface = surface,
+    state = .Loaded
+  }
+}
+
+_fn_handle_result :: proc(ic: ^ImageCache, image: Image) {
+  sync.mutex_lock(&ic.result_mutex)
+  defer sync.mutex_unlock(&ic.result_mutex)
+
+  if image.full_path not_in ic.images {
+    if image.surface != nil {
+      sdl3.DestroySurface(image.surface)
+    }
+    log.warn("Received load result for unrecognized file %s, discarding...", image.full_path)
+    return
+  }
+
+  ic.images[image.full_path] = image
+}
+
+image_cache_init :: proc(ic: ^ImageCache, num_threads := 4, allocator := context.allocator) -> Error {
+  ic.images = make(map[string]Image)
+  work_queue, err := async_work_queue_create(
+    ic,
+    _fn_handle_work,
+    _fn_handle_result,
+    num_threads
+  )
+  if err != nil {
+    return err
+  }
+
+  ic.work_queue = work_queue
+  async_work_queue_start(work_queue)
+  return nil
 }
 
 image_cache_destroy :: proc(ic: ^ImageCache) {
@@ -42,12 +106,19 @@ image_cache_destroy :: proc(ic: ^ImageCache) {
     return
   }
 
+  if ic.work_queue != nil {
+    async_work_queue_destroy(ic.work_queue)
+    free(ic.work_queue)
+    ic.work_queue = nil
+  }
+
   if ic.images != nil {
-    for _, entry in ic.images {
-      delete(entry.full_path)
-      if entry.texture != nil {
-        sdl3.DestroyTexture(entry.texture)
+    for _, &image in &ic.images {
+      if image.surface != nil {
+        sdl3.DestroySurface(image.surface)
+        image.surface = nil
       }
+      delete(image.full_path)
     }
     delete(ic.images)
     ic.images = nil
@@ -55,5 +126,26 @@ image_cache_destroy :: proc(ic: ^ImageCache) {
 }
 
 image_cache_request_load :: proc(ic: ^ImageCache, full_paths: []string) {
+  sync.mutex_lock(&ic.result_mutex)
+  defer sync.mutex_unlock(&ic.result_mutex)
 
+  for path in full_paths {
+    if path in ic.images {
+      continue
+    }
+
+    full_path := strings.clone(path)
+    ic.images[full_path] = {
+      full_path = full_path,
+      state = .Queued,
+    }
+  }
+
+  async_work_queue_submit_all(ic.work_queue, full_paths)
+}
+
+image_cache_get :: proc(ic: ^ImageCache, full_path: string) -> (^Image, bool) {
+  // sync.mutex_lock(&ic.result_mutex)
+  // defer sync.mutex_unlock(&ic.result_mutex)
+  return &ic.images[full_path]
 }
