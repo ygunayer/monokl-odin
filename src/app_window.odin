@@ -12,6 +12,11 @@ import "core:slice"
 import "core:strings"
 import "vendor:sdl3"
 
+AutoFitMode :: enum {
+  FitWindow,
+  KeepOriginalSize,
+}
+
 FileEntryState :: enum {
   Loading,
   Loaded,
@@ -49,12 +54,15 @@ AppWindow :: struct {
   result_mutex: sync.Mutex,
   result_queue: queue.Queue(Image),
 
+  mouse_pos: [2]i32,
+
   zoom_factor: f32,
-  pending_zoom_reset: bool,
-  position_offset: [2]f32,
+  pending_auto_fit: bool,
+  next_fit_mode: AutoFitMode,
+
   is_panning: bool,
   pan_start_pos: [2]i32,
-  pan_start_offset: [2]f32,
+  position_offset: [2]i32,
 
   window_size: [2]i32,
 
@@ -238,6 +246,8 @@ app_window_load_folder :: proc(window: ^AppWindow, full_path: string, focused_fi
   log.debugf("Window %d opened folder %s with %d files (%d shown)", window.id, full_path, len(window.all_files), len(window.shown_files))
   app_window_refresh_title(window)
 
+  sdl3.RaiseWindow(window.handle)
+
   return nil
 }
 
@@ -284,7 +294,7 @@ app_window_go_to_index :: proc(window: ^AppWindow, index: int) {
   if index >= 0 && index < len(window.shown_files) {
     window.current_index = index
     window.current_entry = &window.all_files[window.shown_files[index]]
-    app_window_reset_view(window)
+    app_window_reset_view(window, .FitWindow)
     app_window_refresh_title(window)
   }
 }
@@ -335,10 +345,10 @@ app_window_refresh_title :: proc(window: ^AppWindow) {
   state_text: cstring
   switch entry.state {
     case .Loading:
-      state_text = "Loading... - "
+      state_text = " - Loading..."
 
     case .Failed:
-      state_text = "Failed to load - "
+      state_text = " - Failed to load"
 
     case .Loaded:
       state_text = ""
@@ -347,11 +357,12 @@ app_window_refresh_title :: proc(window: ^AppWindow) {
   sdl3.SetWindowTitle(
     window.handle,
     fmt.ctprintf(
-      "monokl - %s - %s[%d/%d]",
+      "monokl - [%d%%] %d/%d - %s%s",
+      i32(window.zoom_factor * 100.0),
+      window.current_index + 1,
+      num_files,
       entry.full_path,
       state_text,
-      window.current_index + 1,
-      num_files
     )
   )
 }
@@ -370,6 +381,14 @@ app_window_handle_event :: proc(window: ^AppWindow, event: sdl3.Event) {
     }
 
     case .KEY_DOWN: {
+      if !event.key.repeat && is_key_down(event, sdl3.K_N, {.LCTRL}) {
+        app_window_open()
+      }
+
+      if !event.key.repeat && is_key_down(event, sdl3.K_W, {.LCTRL}) {
+        app_close_window(event.key.windowID)
+      }
+
       if is_key_down(event, sdl3.K_LEFT, {}) {
         app_window_advance(window, -1)
       }
@@ -384,6 +403,48 @@ app_window_handle_event :: proc(window: ^AppWindow, event: sdl3.Event) {
 
       if !event.key.repeat && is_key_down(event, sdl3.K_END, {}) {
         app_window_go_to_index(window, len(window.shown_files) - 1)
+      }
+
+      if !event.key.repeat && is_key_down(event, sdl3.K_KP_0, {}) {
+        app_window_reset_view(window, .FitWindow)
+      }
+
+      if !event.key.repeat && is_key_down(event, sdl3.K_KP_1, {}) {
+        app_window_reset_view(window, .KeepOriginalSize)
+      }
+    }
+
+    case .MOUSE_MOTION: {
+      window.mouse_pos = {i32(event.motion.x), i32(event.motion.y)}
+
+      if window.is_panning {
+        window.position_offset = window.mouse_pos - window.pan_start_pos
+      }
+    }
+
+    case .MOUSE_WHEEL: {
+      dzoom: f32 = 0
+      factor: f32 = 1.0
+
+      mod_state := sdl3.GetModState()
+      if .LCTRL in mod_state {
+        factor = .1
+      }
+
+      if event.wheel.integer_y > 0 {
+        dzoom = 0.1
+      } else if event.wheel.integer_y < 0 {
+        dzoom = -.1
+      }
+
+      window.zoom_factor = clamp(window.zoom_factor + dzoom * factor, 0.1, 10.0)
+      window.pending_title_refresh = true
+    }
+
+    case .MOUSE_BUTTON_DOWN: {
+      if event.button.which == sdl3.BUTTON_LEFT && !window.is_panning && window.current_entry != nil {
+        window.is_panning = true
+        window.pan_start_pos = {i32(event.button.x), i32(event.button.y)}
       }
     }
   }
@@ -441,24 +502,28 @@ app_window_update :: proc(window: ^AppWindow) {
     }
   }
 
-  if window.pending_title_refresh {
-    app_window_refresh_title(window)
-  }
-
   entry: ^FileEntry = window.current_entry
 
-  if window.pending_zoom_reset && entry != nil && entry.state == .Loaded {
+  if window.pending_auto_fit && entry != nil && entry.state == .Loaded {
     window.zoom_factor = 1.0
-    aspect_img := f32(entry.image_size.x) / f32(entry.image_size.y)
-    aspect_wnd := f32(window.window_size.x) / f32(window.window_size.y)
 
-    if aspect_img > aspect_wnd {
-      window.zoom_factor = f32(window.window_size.x) / f32(entry.image_size.x)
-    } else {
-      window.zoom_factor = f32(window.window_size.y) / f32(entry.image_size.y)
+    if window.next_fit_mode == .FitWindow {
+      aspect_img := f32(entry.image_size.x) / f32(entry.image_size.y)
+      aspect_wnd := f32(window.window_size.x) / f32(window.window_size.y)
+
+      if aspect_img > aspect_wnd {
+        window.zoom_factor = f32(window.window_size.x) / f32(entry.image_size.x)
+      } else {
+        window.zoom_factor = f32(window.window_size.y) / f32(entry.image_size.y)
+      }
     }
 
-    window.pending_zoom_reset = false
+    window.pending_auto_fit = false
+    window.pending_title_refresh = true
+  }
+
+  if window.pending_title_refresh {
+    app_window_refresh_title(window)
   }
 
   // _app_window_file_entry_update(window, entry)
@@ -486,8 +551,8 @@ app_window_update :: proc(window: ^AppWindow) {
           }
 
           render_rect := sdl3.FRect {
-            x = (f32(window.window_size.x) - render_size.x) * .5,
-            y = (f32(window.window_size.y) - render_size.y) * .5,
+            x = (f32(window.window_size.x) - render_size.x) * .5 + f32(window.position_offset.x),
+            y = (f32(window.window_size.y) - render_size.y) * .5 + f32(window.position_offset.y),
             w = render_size.x,
             h = render_size.y,
           }
@@ -503,9 +568,10 @@ app_window_update :: proc(window: ^AppWindow) {
   sdl3.RenderPresent(window.renderer)
 }
 
-app_window_reset_view :: proc(window: ^AppWindow) {
+app_window_reset_view :: proc(window: ^AppWindow, fit_mode: AutoFitMode) {
   window.zoom_factor = 1.0
   window.is_panning = false
   window.position_offset = {0, 0}
-  window.pending_zoom_reset = true
+  window.pending_auto_fit = true
+  window.next_fit_mode = fit_mode
 }

@@ -74,33 +74,26 @@ app_run :: proc() -> Error {
     for sdl3.PollEvent(&event) {
 
       #partial switch event.type {
-        case .KEY_DOWN: {
-          if !event.key.repeat && is_key_down(event, sdl3.K_N, {.LCTRL}) {
-            app_window_open()
-          }
-          if !event.key.repeat && is_key_down(event, sdl3.K_W, {.LCTRL}) {
-            app_close_window(event.window.windowID)
-          }
-
+        case .KEY_DOWN, .KEY_UP: {
           if event.key.windowID in app.windows {
             app_window_handle_event(&app.windows[event.key.windowID], event)
           }
         }
 
         case .MOUSE_WHEEL, .MOUSE_MOTION: {
-          if event.motion.windowID in app.windows {
-            app_window_handle_event(&app.windows[event.key.windowID], event)
+          if event.wheel.windowID in app.windows {
+            app_window_handle_event(&app.windows[event.wheel.windowID], event)
           }
         }
 
         case .MOUSE_BUTTON_UP, .MOUSE_BUTTON_DOWN: {
           if event.button.windowID in app.windows {
-            app_window_handle_event(&app.windows[event.key.windowID], event)
+            app_window_handle_event(&app.windows[event.button.windowID], event)
           }
         }
 
         case .WINDOW_FIRST..=.WINDOW_LAST: {
-          if event.key.windowID in app.windows {
+          if event.window.windowID in app.windows {
             app_window_handle_event(&app.windows[event.window.windowID], event)
           }
         }
