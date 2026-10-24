@@ -6,6 +6,7 @@ import "core:time"
 import "core:thread"
 import "core:sync/chan"
 import "core:container/queue"
+import pqueue "core:container/priority_queue"
 
 AsyncWorkQueue :: struct($C, $T, $R: typeid) {
   user_ctx: C,

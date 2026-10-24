@@ -74,9 +74,6 @@ app_run :: proc() -> Error {
     for sdl3.PollEvent(&event) {
 
       #partial switch event.type {
-        case .WINDOW_CLOSE_REQUESTED:
-          app_close_window(event.window.windowID)
-
         case .KEY_DOWN: {
           if !event.key.repeat && is_key_down(event, sdl3.K_N, {.LCTRL}) {
             app_window_open()
@@ -87,6 +84,24 @@ app_run :: proc() -> Error {
 
           if event.key.windowID in app.windows {
             app_window_handle_event(&app.windows[event.key.windowID], event)
+          }
+        }
+
+        case .MOUSE_WHEEL, .MOUSE_MOTION: {
+          if event.motion.windowID in app.windows {
+            app_window_handle_event(&app.windows[event.key.windowID], event)
+          }
+        }
+
+        case .MOUSE_BUTTON_UP, .MOUSE_BUTTON_DOWN: {
+          if event.button.windowID in app.windows {
+            app_window_handle_event(&app.windows[event.key.windowID], event)
+          }
+        }
+
+        case .WINDOW_FIRST..=.WINDOW_LAST: {
+          if event.key.windowID in app.windows {
+            app_window_handle_event(&app.windows[event.window.windowID], event)
           }
         }
 
@@ -149,6 +164,7 @@ app_open_file_paths :: proc(file_paths: []string) -> Error {
   }
 
   for folder_path, focused_file in folders_and_files {
+    maybe_focused_file: Maybe(string) = focused_file if focused_file != "" else nil
     target_window: ^AppWindow
     first_empty: ^AppWindow
     for _, &window in &app.windows {
@@ -170,14 +186,10 @@ app_open_file_paths :: proc(file_paths: []string) -> Error {
     }
 
     if target_window == nil {
-      id := app_window_open(folder_path) or_return
+      id := app_window_open(folder_path, maybe_focused_file) or_return
       target_window = &app.windows[id]
     } else {
-      app_window_load_folder(target_window, folder_path)
-    }
-
-    if focused_file != "" {
-      app_window_go_to_file(target_window, focused_file)
+      app_window_load_folder(target_window, folder_path, maybe_focused_file)
     }
   }
 
@@ -196,10 +208,13 @@ app_close_window :: proc(id: sdl3.WindowID) {
   delete_key(&app.windows, id)
 }
 
-app_request_load_files :: proc(full_paths: []string) {
-  image_cache_request_load(&app.image_cache, full_paths)
+app_request_load_files :: proc(window_id: sdl3.WindowID, full_paths: []string) {
+  image_cache_request_load(&app.image_cache, window_id, full_paths)
 }
 
-app_get_image_entry :: proc(full_path: string) -> (^Image, bool) {
-  return image_cache_get(&app.image_cache, full_path)
+app_on_image_load_finished :: proc(result: ImageLoadResultItem) {
+  wnd, ok := &app.windows[result.window_id]
+  if ok {
+    app_window_on_image_load_finished(wnd, result.image)
+  }
 }
