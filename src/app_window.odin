@@ -102,7 +102,6 @@ _folder_settings_read_from_file :: proc(settings: ^FolderSettings, full_path: st
     ReadFavorites,
     ReadHidden,
   }
-
   text := string(bytes)
   state := ReaderState.ReadAny
   for line in strings.split_lines_iterator(&text) {
@@ -137,11 +136,19 @@ _folder_settings_read_from_file :: proc(settings: ^FolderSettings, full_path: st
     }
 
     #partial switch state {
-      case .ReadFavorites:
-        settings.favorites[trimmed_line] = true
+      case .ReadFavorites: {
+        // can't insert new keys into the map otherwise we corrupt memory
+        if trimmed_line in settings.favorites {
+          settings.favorites[trimmed_line] = true
+        }
+      }
 
-      case .ReadHidden:
-        settings.favorites[trimmed_line] = true
+      case .ReadHidden: {
+        // can't insert new keys into the map otherwise we corrupt memory
+        if trimmed_line in settings.hidden {
+          settings.hidden[trimmed_line] = true
+        }
+      }
     }
   }
 
@@ -158,17 +165,21 @@ _folder_settings_write_to_file :: proc(settings: ^FolderSettings, full_path: str
     defer strings.builder_destroy(&sb)
   
     strings.write_string(&sb, "[favorites]\n")
-    for filename, _ in settings.favorites {
-      strings.write_string(&sb, filename)
-      strings.write_string(&sb, "\n")
+    for filename, is_favorite in settings.favorites {
+      if is_favorite {
+        strings.write_string(&sb, filename)
+        strings.write_string(&sb, "\n")
+      }
     }
   
     strings.write_string(&sb, "\n")
   
     strings.write_string(&sb, "[hidden]\n")
-    for filename, _ in settings.hidden {
-      strings.write_string(&sb, filename)
-      strings.write_string(&sb, "\n")
+    for filename, is_hidden in settings.hidden {
+      if is_hidden {
+        strings.write_string(&sb, filename)
+        strings.write_string(&sb, "\n")
+      }
     }
 
     str := strings.to_string(sb)
@@ -433,6 +444,9 @@ app_window_load_folder :: proc(window: ^AppWindow, full_path: string, focused_fi
     return common_error(fmt.tprintf("Failed to iterate through files in directory %s with reason %v", full_path, err))
   }
 
+  clear(&window.folder_settings.favorites)
+  clear(&window.folder_settings.hidden)
+
   window.loaded = true
   window.folder_path = strings.clone(full_path)
   window.folder_settings_path = filepath.join({full_path, ".monokl"}) or_return
@@ -466,6 +480,9 @@ app_window_load_folder :: proc(window: ^AppWindow, full_path: string, focused_fi
       is_favorite = false, // TODO
       state = .Loading,
     }
+
+    window.folder_settings.favorites[filename] = false
+    window.folder_settings.hidden[filename] = false
   }
 
   if saw_settings_file {

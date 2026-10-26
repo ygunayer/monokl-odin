@@ -7,19 +7,16 @@ import argparse
 import platform
 import subprocess
 import urllib.request
-from typing import List, Tuple, NoReturn
+from typing import List, Tuple, NoReturn, Optional
 
 PROJECT_NAME = "monokl"
 
 SYSTEM = platform.system()
 IS_WINDOWS = SYSTEM == "Windows"
-IS_OSX = SYSTEM == "Darwin"
+IS_MACOS = SYSTEM == "Darwin"
 IS_LINUX = SYSTEM == "Linux"
 
 BINARY_EXTENSION = ".exe" if IS_WINDOWS else ""
-
-ODIN_EXE_PATH = shutil.which("odin")
-SHADERCROSS_EXE_PATH = shutil.which("shadercross")
 
 def die(*args) -> NoReturn:
     for a in args:
@@ -37,13 +34,159 @@ def shexec(cmd: str, flags: List[str] = []):
             output,
         )
 
+
+ODIN_EXE_PATH = shutil.which("odin") or ""
+if not ODIN_EXE_PATH:
+    die("Odin compiler binary not found in PATH")
+
+
+RELEASE_ROOT = os.path.join("build", "release")
+
+def recreate_release_path(target: str, arch: str) -> str:
+    target_dir = os.path.join(RELEASE_ROOT, f"{PROJECT_NAME}-{target}-{arch}")
+    if os.path.exists(target_dir):
+        shutil.rmtree(target_dir)
+    os.makedirs(target_dir)
+    return target_dir
+
+def release_windows(arch: str) -> str:
+    rc_path = shutil.which("rc.exe")
+    if not rc_path:
+        die("rc.exe not found in PATH. You might want to run this command from a Visual Studio command prompt")
+
+    # prepare
+    clean()
+    os.makedirs("bin")
+    copy_assets()
+
+    shexec("rc.exe", ["/fo", "bin\\resources.res", "assets\\build\\resources.rc"])
+    shexec("cvtres.exe", ["/MACHINE:" + ("X64" if arch == "amd64" else "X86"), "bin\\resources.res"])
+
+    # compile
+    exe_name = f"{PROJECT_NAME}.exe"
+    odin_args = [
+        "build",
+        "src/",
+        "-subsystem:windows",
+        f"-target:windows_{arch}",
+        f"-out=bin\\{PROJECT_NAME}.exe",
+        "-o:speed",
+        "-extra-linker-flags:bin\\resources.obj"
+    ]
+    shexec(ODIN_EXE_PATH, odin_args)
+
+    # copy build artifacts to release folder
+    target_dir = recreate_release_path("windows", arch)
+    shutil.copytree(
+        os.path.join("bin", "assets"),
+        os.path.join(target_dir, "assets")
+    )
+    shutil.copy(
+        os.path.join("bin", exe_name),
+        os.path.join(target_dir, exe_name)
+    )
+
+    return target_dir
+
+def release_linux(arch: str):
+    # prepare
+    clean()
+    os.makedirs("bin")
+    copy_assets()
+
+    # compile
+    odin_args = [
+        "build",
+        "src/",
+        f"-target:linux_{arch}",
+        f"-out=bin/{PROJECT_NAME}",
+        "-o:speed",
+    ]
+    shexec(ODIN_EXE_PATH, odin_args)
+
+    # copy build artifacts to release folder
+    target_dir = recreate_release_path("linux", arch)
+    shutil.copytree(
+        os.path.join("bin", "assets"),
+        os.path.join(target_dir, "assets")
+    )
+    shutil.copy(
+        os.path.join("bin", PROJECT_NAME),
+        os.path.join(target_dir, PROJECT_NAME)
+    )
+    return target_dir
+
+def release_macos(arch: str):
+    # prepare
+    clean()
+    os.makedirs("bin")
+    copy_assets()
+
+    # compile
+    odin_args = [
+        "build",
+        "src/",
+        f"-target:darwin_{arch}",
+        f"-out=bin/{PROJECT_NAME}",
+        "-o:speed",
+        "-define:MACOS_BUNDLE=true",
+    ]
+    shexec(ODIN_EXE_PATH, odin_args)
+
+    # copy build artifacts to release folder
+    target_dir = recreate_release_path("darwin", arch)
+
+    curr_target_path = os.path.join(target_dir, PROJECT_NAME + ".app")
+    contents_dir = os.path.join(curr_target_path, "Contents")
+    bin_dir = os.path.join(contents_dir, "MacOS")
+    res_dir = os.path.join(contents_dir, "Resources")
+    os.makedirs(bin_dir)
+    os.makedirs(res_dir)
+
+    shutil.copy(
+        os.path.join("build", "Info.plist"),
+        os.path.join(contents_dir, "Info.plist")
+    )
+    shutil.copy(
+        os.path.join("bin", PROJECT_NAME),
+        os.path.join(bin_dir, PROJECT_NAME)
+    )
+    shutil.copy(
+        os.path.join("build", "Icon.icns"),
+        os.path.join(res_dir, "Icon.icns")
+    )
+    shutil.copytree(
+        os.path.join("bin", "assets"),
+        os.path.join(res_dir, "assets"),
+    )
+
+    return target_dir
+
+RELEASE_TARGETS = {
+    "windows": {
+        "handler": release_windows,
+        "archs": ["amd64"],
+    },
+    "linux": {
+        "handler": release_linux,
+        "archs": ["amd64"],
+    },
+    "macos": {
+        "handler": release_macos,
+        "archs": ["amd64", "arm64"],
+    },
+}
+
+##################################
+# Commands
+##################################
 def clean():
     if os.path.exists("bin"):
         shutil.rmtree("bin")
         return True
     return False
 
-def compile(is_release: bool, should_clean: bool):
+def compile(is_release: bool, should_clean: bool, target: Optional[str] = None) -> str:
     if ODIN_EXE_PATH is None:
         raise ValueError("Odin compiler binary not found in PATH")
 
@@ -53,21 +196,58 @@ def compile(is_release: bool, should_clean: bool):
     if not os.path.exists("bin"):
         os.makedirs("bin")
 
-    flags = ["build", "src/", f"-out=bin/{PROJECT_NAME}" + BINARY_EXTENSION]
+    copy_assets()
+
+    extension = BINARY_EXTENSION
+    if target and target.startswith("js_"):
+        extension = ""
+
+    output_path = os.path.join("bin", f"{PROJECT_NAME}{extension}")
+    flags = ["build", "src/", f"-out={output_path}"]
     if is_release:
         flags = flags + ["-o:speed", "-no-bounds-check"]
-        if IS_WINDOWS:
+        if IS_WINDOWS and (not target or target.startswith("win")):
             flags.append("-subsystem:windows")
+        if target:
+            flags.append(f"-target:{target}")
     else:
         flags = flags + ["-o:none", "-debug"]#, "-sanitize:address"]
 
     shexec("odin", flags)
     print(f"Successfully compiled the executable in", "release" if is_release else "debug", "mode")
+    return output_path
 
-def run():
-    os.chdir("bin")
-    bin_path = f"{PROJECT_NAME}{BINARY_EXTENSION}" if IS_WINDOWS else f"./{PROJECT_NAME}"
-    os.system(bin_path)
+def release(target: Optional[str] = None):
+    if target == "all":
+        for t in RELEASE_TARGETS:
+            release(t)
+        return
+
+    if not target:
+        if IS_WINDOWS: target = "windows"
+        elif IS_LINUX: target = "linux"
+        elif IS_MACOS: target = "macos"
+        if target:
+            print(f"Auto-detected release target {target}")
+
+    if not target:
+        die("No target specified")
+
+    if target not in RELEASE_TARGETS:
+        die(f"Invalid target {target}")
+
+    release_target = RELEASE_TARGETS[target]
+    for arch in release_target["archs"]:
+        print(f"Building release for target {target}-{arch}")
+        target_dir = release_target["handler"](arch)
+        print(f"Successfully built target {target}-{arch} at path {target_dir}")
+
+def run(output_path: str):
+    os.system(output_path)
+
+def copy_assets():
+    # Comment out to copy assets to your bin path
+    pass
 
 
 def main():
@@ -84,30 +264,25 @@ def main():
     compile_parser.add_argument("-e", "--release", action="store_true", help="Compiles the executable in release mode (default: false)")
     compile_parser.add_argument("-w", "--watch", action="store_true", help="Enables watch mode, recompiling every time files are changed")
     compile_parser.add_argument("-c", "--clean", action="store_true", help="Forces a cleanup before sync")
-
-    compile_shaders_parser = subparsers.add_parser("compile-shaders", help="Compiles the shaders")
-    compile_shaders_parser.add_argument("-e", "--release", action="store_true", help="Compiles the executable in release mode (default: false)")
+    compile_parser.add_argument("-t", "--target", help="The target platform to compile against")
 
     run_parser = subparsers.add_parser("run", help="Compiles and then runs the executable")
     run_parser.add_argument("-e", "--release", action="store_true", help="Compiles the executable in release mode (default: false)")
     run_parser.add_argument("-w", "--watch", action="store_true", help="Enables watch mode, recompiling every time files are changed")
     run_parser.add_argument("-c", "--clean", action="store_true", help="Forces a cleanup before sync")
 
-    debug_parser = subparsers.add_parser("debug", help="Compiles the executable in debug mode and starts a debug process")
-
-    clean_parser = subparsers.add_parser("clean", help="Cleans the previous build artifacts")
+    release_parser = subparsers.add_parser("release", help="Bundles the game for the target platform")
+    release_parser.add_argument("-t", "--target", help="The target platform to compile against. One of: windows, linux, macos")
 
     args = parser.parse_args()
 
     if args.command == "compile":
-        compile(args.release, args.clean)
-    elif args.command == "compile-shaders":
-        compile_shaders(args.release)
+        compile(args.release, args.clean, target=args.target)
     elif args.command == "run":
-        compile(args.release, args.clean)
-        run()
-    elif args.command == "debug":
-        print("Compiling in debug mode and starting debug process")
+        output_path = compile(args.release, args.clean)
+        run(output_path)
+    elif args.command == "release":
+        release(args.target)
 
 if __name__ == "__main__":
     main()
