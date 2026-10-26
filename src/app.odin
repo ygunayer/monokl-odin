@@ -69,6 +69,11 @@ app_run :: proc() -> Error {
   app_init() or_return
   defer app_destroy()
 
+  if len(os.args) > 1 {
+    // TODO: handle filenames better
+    app_open_file_paths(os.args[1:])
+  }
+
   event: sdl3.Event
   for len(app.windows) > 0 {
     for sdl3.PollEvent(&event) {

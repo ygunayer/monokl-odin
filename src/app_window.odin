@@ -33,9 +33,17 @@ FileEntry :: struct {
   image_size: [2]i32,
 
   is_favorite: bool,
+  is_hidden: bool,
   t_created: time.Time,
   t_last_modified: time.Time,
   t_last_accessed: time.Time,
+}
+
+FolderSettings :: struct {
+  favorites: map[string]bool,
+  hidden: map[string]bool,
+  only_favorites: bool,
+  show_hidden: bool,
 }
 
 AppWindow :: struct {
@@ -45,6 +53,11 @@ AppWindow :: struct {
 
   loaded: bool,
   folder_path: string,
+  folder_settings_path: string,
+  folder_settings_path_tmp: string,
+  folder_settings_io_mutex: sync.Mutex,
+  pending_folder_settings_save: bool,
+
   all_files: map[string]FileEntry, // keys are borrowed
   shown_files: [dynamic]string, // contains borrowed strings
   current_index: int, // current position in `shown_files`
@@ -66,7 +79,224 @@ AppWindow :: struct {
 
   window_size: [2]i32,
 
+  folder_settings: FolderSettings,
+
   current_entry: ^FileEntry, // borrowed
+}
+
+
+/////////////////////////////
+// Private API
+/////////////////////////////
+_folder_settings_read_from_file :: proc(settings: ^FolderSettings, full_path: string) -> Error {
+  assert(settings != nil)
+
+  bytes, err := os.read_entire_file(full_path, context.allocator)
+  if err != nil {
+    return common_error(fmt.tprintf("Failed to read folder settings from %s", full_path))
+  }
+  defer delete(bytes)
+
+  ReaderState :: enum {
+    ReadAny,
+    ReadFavorites,
+    ReadHidden,
+  }
+
+  text := string(bytes)
+  state := ReaderState.ReadAny
+  for line in strings.split_lines_iterator(&text) {
+    trimmed_line := strings.trim_space(line)
+
+    if trimmed_line == "" {
+      continue
+    }
+
+    if strings.starts_with(line, "[only_favorites") {
+      if strings.ends_with(line, "true]") {
+        settings.only_favorites = true
+      }
+      continue
+    }
+
+    if strings.starts_with(line, "[show_hidden") {
+      if strings.ends_with(line, "true]") {
+        settings.show_hidden = true
+      }
+      continue
+    }
+
+    if line == "[favorites]" {
+      state = .ReadFavorites
+      continue
+    }
+
+    if line == "[hidden]" {
+      state = .ReadHidden
+      continue
+    }
+
+    #partial switch state {
+      case .ReadFavorites:
+        settings.favorites[trimmed_line] = true
+
+      case .ReadHidden:
+        settings.favorites[trimmed_line] = true
+    }
+  }
+
+  log.debugf("Successfully read folder settings from %s", full_path)
+
+  return nil
+}
+
+_folder_settings_write_to_file :: proc(settings: ^FolderSettings, full_path: string) -> Error {
+  assert(settings != nil)
+
+  {
+    sb := strings.builder_make()
+    defer strings.builder_destroy(&sb)
+  
+    strings.write_string(&sb, "[favorites]\n")
+    for filename, _ in settings.favorites {
+      strings.write_string(&sb, filename)
+      strings.write_string(&sb, "\n")
+    }
+  
+    strings.write_string(&sb, "\n")
+  
+    strings.write_string(&sb, "[hidden]\n")
+    for filename, _ in settings.hidden {
+      strings.write_string(&sb, filename)
+      strings.write_string(&sb, "\n")
+    }
+
+    str := strings.to_string(sb)
+
+    err := os.write_entire_file(full_path, str[:])
+    if err != nil {
+      return common_error(fmt.tprintf("Failed to write settings to path %s due to %v", full_path, err))
+    }
+  }
+
+  // TODO: hide the file
+
+  return nil
+}
+
+_app_window_reload_folder_settings :: proc(window: ^AppWindow) {
+  assert(window != nil)
+  if window.folder_settings_path == "" {
+    return
+  }
+  sync.mutex_lock(&window.folder_settings_io_mutex)
+  defer sync.mutex_unlock(&window.folder_settings_io_mutex)
+  err := _folder_settings_read_from_file(&window.folder_settings, window.folder_settings_path)
+  if err != nil {
+    log.warnf("Failed to reload folder settings due to %v", err)
+  } else {
+    log.warnf("Successfully loaded folder settings")
+  }
+}
+
+_app_window_save_folder_settings :: proc(window: ^AppWindow) {
+  assert(window != nil)
+  sync.mutex_lock(&window.folder_settings_io_mutex)
+  defer sync.mutex_unlock(&window.folder_settings_io_mutex)
+  window.pending_folder_settings_save = false
+  if window.folder_settings_path_tmp == "" || window.folder_settings_path == "" {
+    return
+  }
+  err1 := _folder_settings_write_to_file(&window.folder_settings, window.folder_settings_path_tmp)
+  if err1 != nil {
+    log.warnf("Failed to save settings due to %v", err1)
+    return
+  }
+
+  err2 := os.rename(window.folder_settings_path_tmp, window.folder_settings_path)
+  if err2 != nil {
+    log.warnf("Failed to rename folder settings file: %v", err2)
+  } else {
+    log.warnf("Successfully saved folder settings")
+  }
+}
+
+_app_window_handle_one_result :: proc(window: ^AppWindow) -> bool {
+  assert(window != nil)
+
+  item: Image
+
+  {
+    sync.lock(&window.result_mutex)
+    defer sync.unlock(&window.result_mutex)
+
+    if queue.len(window.result_queue) < 1 {
+      return false
+    }
+
+    item = queue.pop_front(&window.result_queue)
+    window.pending_title_refresh = true
+  }
+
+  entry, ok := &window.all_files[item.full_path]
+  if !ok {
+    log.warnf("Received image result for unrecognized path %s", item.full_path)
+    return false
+  }
+
+  if !item.loaded_successfully || item.surface == nil {
+    entry.state = .Failed
+    return false
+  }
+
+  texture := sdl3.CreateTextureFromSurface(window.renderer, item.surface)
+  if texture == nil {
+    log.warnf("Failed to convert image to texture: %v", sdl_last_error("Reason"))
+    entry.state = .Failed
+  } else {
+    entry.state = .Loaded
+    entry.texture = texture
+    entry.image_size.x = item.surface.w
+    entry.image_size.y = item.surface.h
+
+    sdl3.DestroySurface(item.surface)
+  }
+
+  return true
+}
+
+_app_window_refresh_shown_files :: proc(window: ^AppWindow) {
+  clear(&window.shown_files)
+
+  for _, entry in window.all_files {
+    if window.folder_settings.only_favorites && !entry.is_favorite {
+      continue
+    }
+
+    if !window.folder_settings.show_hidden && entry.is_hidden {
+      continue
+    }
+
+    append(&window.shown_files, entry.full_path)
+  }
+
+  // TODO: sort by other methods
+  slice.sort_by_cmp(window.shown_files[:], proc(a, b: string) -> slice.Ordering {
+    c := strings.compare(a, b)
+    if c == 0 do return .Equal
+    if c < 0 do return .Less
+    return .Greater
+  })
+
+  desired_idx := 0
+  if window.current_entry != nil {
+    found_idx, found := slice.linear_search(window.shown_files[:], window.current_entry.full_path)
+    if found {
+      desired_idx = found_idx
+    }
+  }
+
+  app_window_go_to_index(window, clamp(desired_idx, 0, len(window.shown_files)))
 }
 
 _sort_file_paths_by_proximity :: proc(file_paths: ^[dynamic]string, target: string) {
@@ -139,6 +369,10 @@ _sort_file_paths_by_proximity :: proc(file_paths: ^[dynamic]string, target: stri
   }
 }
 
+
+/////////////////////////////
+// Public API
+/////////////////////////////
 app_window_open :: proc {
   app_window_open_empty,
   app_window_open_at_folder,
@@ -201,17 +435,24 @@ app_window_load_folder :: proc(window: ^AppWindow, full_path: string, focused_fi
 
   window.loaded = true
   window.folder_path = strings.clone(full_path)
+  window.folder_settings_path = filepath.join({full_path, ".monokl"}) or_return
+  window.folder_settings_path_tmp = filepath.join({full_path, ".monokl.tmp"}) or_return
+
+  saw_settings_file := false
 
   next_idx := 0
   for file_info in file_infos {
+    if file_info.name == ".monokl" {
+      saw_settings_file = true
+      continue
+    }
+
     if !app_is_supported_file(file_info.fullpath) {
       continue
     }
 
     full_file_path := strings.clone(file_info.fullpath)
     filename := os.base(full_file_path)
-
-    append(&window.shown_files, full_file_path)
 
     next_idx += 1
 
@@ -227,13 +468,34 @@ app_window_load_folder :: proc(window: ^AppWindow, full_path: string, focused_fi
     }
   }
 
+  if saw_settings_file {
+    _app_window_reload_folder_settings(window)
+
+    for _, &entry in window.all_files {
+      if entry.filename in window.folder_settings.favorites {
+        entry.is_favorite = true
+      }
+
+      if entry.filename in window.folder_settings.hidden {
+        entry.is_hidden = true
+      }
+    }
+  }
+
+  _app_window_refresh_shown_files(window)
+
   if len(window.shown_files) > 0 {
     focused_file_path, has_desired := focused_file.(string)
 
-    desired_file := focused_file_path if has_desired else window.shown_files[0]
-    _sort_file_paths_by_proximity(&window.shown_files, desired_file)
+    load_order := make([dynamic]string)
+    defer delete(load_order)
+    for str in window.shown_files {
+      append(&load_order, str)
+    }
 
-    app_request_load_files(window.id, window.shown_files[:])
+    desired_file := focused_file_path if has_desired else window.shown_files[0]
+    _sort_file_paths_by_proximity(&load_order, desired_file)
+    app_request_load_files(window.id, load_order[:])
 
     current_index, ok := slice.linear_search(window.shown_files[:], desired_file)
     if !ok {
@@ -257,8 +519,20 @@ app_window_unload_folder :: proc(window: ^AppWindow) -> Error {
     return nil
   }
 
+  _app_window_save_folder_settings(window)
+
+  settings := &window.folder_settings
+  delete(settings.favorites)
+  delete(settings.hidden)
+
   delete(window.folder_path)
   delete(window.shown_files)
+  delete(window.folder_settings_path)
+  delete(window.folder_settings_path_tmp)
+
+  window.folder_path = ""
+  window.folder_settings_path = ""
+  window.folder_settings_path_tmp = ""
 
   if window.all_files != nil {
     for key, entry in window.all_files {
@@ -287,6 +561,16 @@ app_window_destroy :: proc(window: ^AppWindow) {
 
   if window.handle != nil {
     sdl3.DestroyWindow(window.handle)
+  }
+}
+
+app_window_toggle_favorite :: proc(window: ^AppWindow) {
+  assert(window != nil)
+  if window.current_entry != nil {
+    window.current_entry.is_favorite = !window.current_entry.is_favorite
+    window.folder_settings.favorites[window.current_entry.filename] = window.current_entry.is_favorite
+    app_window_refresh_title(window)
+    _app_window_save_folder_settings(window)
   }
 }
 
@@ -345,24 +629,31 @@ app_window_refresh_title :: proc(window: ^AppWindow) {
   state_text: cstring
   switch entry.state {
     case .Loading:
-      state_text = " - Loading..."
+      state_text = "Loading... - "
 
     case .Failed:
-      state_text = " - Failed to load"
+      state_text = "Failed to load - "
 
     case .Loaded:
       state_text = ""
   }
 
+  flags_text: cstring = ""
+  if entry.is_favorite {
+    flags_text = "♥ "
+  }
+
   sdl3.SetWindowTitle(
     window.handle,
     fmt.ctprintf(
-      "monokl - [%d%%] %d/%d - %s%s",
-      i32(window.zoom_factor * 100.0),
+      "monokl - %s - %d/%d - %s%s%s [%d%%]",
+      window.folder_path,
       window.current_index + 1,
       num_files,
-      entry.full_path,
       state_text,
+      flags_text,
+      entry.filename,
+      i32(window.zoom_factor * 100.0),
     )
   )
 }
@@ -378,6 +669,7 @@ app_window_handle_event :: proc(window: ^AppWindow, event: sdl3.Event) {
       if sdl3.GetWindowSize(window.handle, &w, &h) {
         window.window_size = {w, h}
       }
+      window.pending_auto_fit = true
     }
 
     case .KEY_DOWN: {
@@ -395,6 +687,14 @@ app_window_handle_event :: proc(window: ^AppWindow, event: sdl3.Event) {
 
       if is_key_down(event, sdl3.K_RIGHT, {}) {
         app_window_advance(window, 1)
+      }
+
+      if is_key_down(event, sdl3.K_F, {.LSHIFT}) {
+        app_window_toggle_only_favorites(window)
+      }
+
+      if is_key_down(event, sdl3.K_F, {}) {
+        app_window_toggle_favorite(window)
       }
 
       if !event.key.repeat && is_key_down(event, sdl3.K_HOME, {}) {
@@ -450,48 +750,6 @@ app_window_handle_event :: proc(window: ^AppWindow, event: sdl3.Event) {
   }
 }
 
-_app_window_handle_one_result :: proc(window: ^AppWindow) -> bool {
-  item: Image
-
-  {
-    sync.lock(&window.result_mutex)
-    defer sync.unlock(&window.result_mutex)
-
-    if queue.len(window.result_queue) < 1 {
-      return false
-    }
-
-    item = queue.pop_front(&window.result_queue)
-    window.pending_title_refresh = true
-  }
-
-  entry, ok := &window.all_files[item.full_path]
-  if !ok {
-    log.warnf("Received image result for unrecognized path %s", item.full_path)
-    return false
-  }
-
-  if !item.loaded_successfully || item.surface == nil {
-    entry.state = .Failed
-    return false
-  }
-
-  texture := sdl3.CreateTextureFromSurface(window.renderer, item.surface)
-  if texture == nil {
-    log.warnf("Failed to convert image to texture: %v", sdl_last_error("Reason"))
-    entry.state = .Failed
-  } else {
-    entry.state = .Loaded
-    entry.texture = texture
-    entry.image_size.x = item.surface.w
-    entry.image_size.y = item.surface.h
-
-    sdl3.DestroySurface(item.surface)
-  }
-
-  return true
-}
-
 app_window_update :: proc(window: ^AppWindow) {
   // drain the result queue up to 3 items per frame
   {
@@ -500,6 +758,10 @@ app_window_update :: proc(window: ^AppWindow) {
         break
       }
     }
+  }
+
+  if window.pending_folder_settings_save {
+    _app_window_save_folder_settings(window)
   }
 
   entry: ^FileEntry = window.current_entry
@@ -574,4 +836,11 @@ app_window_reset_view :: proc(window: ^AppWindow, fit_mode: AutoFitMode) {
   window.position_offset = {0, 0}
   window.pending_auto_fit = true
   window.next_fit_mode = fit_mode
+}
+
+app_window_toggle_only_favorites :: proc(window: ^AppWindow) {
+  assert(window != nil)
+  window.folder_settings.only_favorites = !window.folder_settings.only_favorites
+  _app_window_refresh_shown_files(window)
+  window.pending_folder_settings_save = true
 }

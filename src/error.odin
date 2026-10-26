@@ -2,6 +2,7 @@ package monokl
 
 import "base:runtime"
 import "core:fmt"
+import "core:mem"
 import "core:strings"
 import "vendor:sdl3"
 
@@ -16,6 +17,7 @@ CommonError :: struct {
 
 Error :: union {
   CommonError,
+  mem.Allocator_Error,
 }
 
 common_error :: proc(message: string, location := #caller_location) -> CommonError {
@@ -31,6 +33,9 @@ error_string :: #force_inline proc(error: Error) -> string {
   switch err in error {
     case CommonError:
       return fmt.aprintf("Error @ %v - %s", err.location, err.message)
+
+    case mem.Allocator_Error:
+      return fmt.aprintf("Memory allocation error: %v", err)
   }
 
   return "Unknown reason"
