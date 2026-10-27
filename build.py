@@ -77,10 +77,13 @@ def release_windows(arch: str) -> str:
 
     # copy build artifacts to release folder
     target_dir = recreate_release_path("windows", arch)
-    shutil.copytree(
-        os.path.join("bin", "assets"),
-        os.path.join(target_dir, "assets")
-    )
+    # shutil.copytree(
+    #     os.path.join("bin", "assets"),
+    #     os.path.join(target_dir, "assets")
+    # )
+    for name in ["SDL3.dll", "SDL3_image.dll"]:
+        if not os.path.exists(os.path.join(target_dir, name)):
+            shutil.copy(os.path.join("lib", name), target_dir)
     shutil.copy(
         os.path.join("bin", exe_name),
         os.path.join(target_dir, exe_name)
@@ -196,6 +199,7 @@ def compile(is_release: bool, should_clean: bool, target: Optional[str] = None) 
     if not os.path.exists("bin"):
         os.makedirs("bin")
 
+    copy_libs()
     copy_assets()
 
     extension = BINARY_EXTENSION
@@ -248,6 +252,12 @@ def run(output_path: str):
 def copy_assets():
     # Comment out to copy assets to your bin path
     pass
+
+def copy_libs():
+    if IS_WINDOWS:
+        for name in ["SDL3.dll", "SDL3_image.dll"]:
+            if not os.path.exists(os.path.join("bin", name)):
+                shutil.copy(os.path.join("lib", name), "bin")
 
 
 def main():

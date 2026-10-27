@@ -5,6 +5,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:log"
 import "core:fmt"
+import "core:math"
 import "core:sync"
 import "core:container/queue"
 import "core:time"
@@ -13,6 +14,7 @@ import "core:strings"
 import "vendor:sdl3"
 
 AutoFitMode :: enum {
+  None,
   FitWindow,
   KeepOriginalSize,
 }
@@ -67,17 +69,17 @@ AppWindow :: struct {
   result_mutex: sync.Mutex,
   result_queue: queue.Queue(Image),
 
+  window_size: [2]i32,
   mouse_pos: [2]i32,
-
   zoom_factor: f32,
+  position_offset: [2]i32,
+
   pending_auto_fit: bool,
   next_fit_mode: AutoFitMode,
 
   is_panning: bool,
   pan_start_pos: [2]i32,
-  position_offset: [2]i32,
-
-  window_size: [2]i32,
+  render_offset: [2]f32,
 
   folder_settings: FolderSettings,
 
@@ -489,11 +491,14 @@ app_window_load_folder :: proc(window: ^AppWindow, full_path: string, focused_fi
     _app_window_reload_folder_settings(window)
 
     for _, &entry in window.all_files {
-      if entry.filename in window.folder_settings.favorites {
+      is_favorite, fav_ok := window.folder_settings.favorites[entry.filename]
+      is_hidden, hidden_ok := window.folder_settings.hidden[entry.filename]
+
+      if is_favorite && fav_ok {
         entry.is_favorite = true
       }
 
-      if entry.filename in window.folder_settings.hidden {
+      if is_hidden && hidden_ok {
         entry.is_hidden = true
       }
     }
@@ -683,8 +688,13 @@ app_window_handle_event :: proc(window: ^AppWindow, event: sdl3.Event) {
 
     case .WINDOW_RESIZED: {
       w, h: c.int
+      dscale: f32
       if sdl3.GetWindowSize(window.handle, &w, &h) {
+        dscale = math.sqrt(f32(w * h) / f32(window.window_size.x * window.window_size.y))
         window.window_size = {w, h}
+        if dscale != 0 {
+          window.zoom_factor *= dscale
+        }
       }
       window.pending_auto_fit = true
     }
@@ -714,6 +724,11 @@ app_window_handle_event :: proc(window: ^AppWindow, event: sdl3.Event) {
         app_window_toggle_favorite(window)
       }
 
+      if is_key_down(event, sdl3.K_C, {}) {
+        window.is_panning = false
+        window.position_offset = {0,0}
+      }
+
       if !event.key.repeat && is_key_down(event, sdl3.K_HOME, {}) {
         app_window_go_to_index(window, 0)
       }
@@ -733,52 +748,78 @@ app_window_handle_event :: proc(window: ^AppWindow, event: sdl3.Event) {
 
     case .MOUSE_MOTION: {
       window.mouse_pos = {i32(event.motion.x), i32(event.motion.y)}
-
-      if window.is_panning {
-        window.position_offset = window.mouse_pos - window.pan_start_pos
-      }
     }
 
     case .MOUSE_WHEEL: {
-      dzoom: f32 = 0
-      factor: f32 = 1.0
+      if window.current_entry != nil {
+        dzoom: f32 = 0
+        factor: f32 = 1.0
 
-      mod_state := sdl3.GetModState()
-      if .LCTRL in mod_state {
-        factor = .1
+        mod_state := sdl3.GetModState()
+        if .LCTRL in mod_state {
+          factor = .1
+        }
+
+        if event.wheel.integer_y > 0 {
+          dzoom = 0.1
+        } else if event.wheel.integer_y < 0 {
+          dzoom = -.1
+        }
+
+        window.zoom_factor = clamp(window.zoom_factor + dzoom * factor, 0.1, 10.0)
+        window.next_fit_mode = .None
+        window.pending_title_refresh = true
       }
-
-      if event.wheel.integer_y > 0 {
-        dzoom = 0.1
-      } else if event.wheel.integer_y < 0 {
-        dzoom = -.1
-      }
-
-      window.zoom_factor = clamp(window.zoom_factor + dzoom * factor, 0.1, 10.0)
-      window.pending_title_refresh = true
     }
 
     case .MOUSE_BUTTON_DOWN: {
-      if event.button.which == sdl3.BUTTON_LEFT && !window.is_panning && window.current_entry != nil {
+      if event.button.button == sdl3.BUTTON_LEFT && !window.is_panning && window.current_entry != nil {
         window.is_panning = true
         window.pan_start_pos = {i32(event.button.x), i32(event.button.y)}
+        window.mouse_pos = window.pan_start_pos
+      }
+    }
+
+    case .MOUSE_BUTTON_UP: {
+      if event.button.button == sdl3.BUTTON_LEFT && window.is_panning {
+        window.is_panning = false
+        window.position_offset += window.mouse_pos - window.pan_start_pos
       }
     }
   }
 }
 
-app_window_update :: proc(window: ^AppWindow) {
-  // drain the result queue up to 3 items per frame
+app_window_update :: proc(window: ^AppWindow, dt: f32) {
+  // drain the result queue up to 4 items per frame
   {
-    for i in 0..<3 {
+    for i in 0..<4 {
       if !_app_window_handle_one_result(window) {
         break
       }
     }
   }
 
+  if window.is_panning {
+    target_offset: [2]f32 = {
+      f32(window.position_offset.x + window.mouse_pos.x - window.pan_start_pos.x),
+      f32(window.position_offset.y + window.mouse_pos.y - window.pan_start_pos.y),
+    }
+    window.render_offset = math.lerp(window.render_offset, target_offset, dt * 50)
+  } else {
+    window.render_offset = {
+      f32(window.position_offset.x),
+      f32(window.position_offset.y),
+    }
+  }
+
   if window.pending_folder_settings_save {
     _app_window_save_folder_settings(window)
+  }
+
+  if window.is_panning {
+    sdl3.SetRenderDrawColor(window.renderer, 255, 255, 88, 255)
+    sdl3.RenderPoint(window.renderer, f32(window.pan_start_pos.x), f32(window.pan_start_pos.y))
+    sdl3.RenderDebugText(window.renderer, 20, 20, "ASDASDASD")
   }
 
   entry: ^FileEntry = window.current_entry
@@ -830,8 +871,8 @@ app_window_update :: proc(window: ^AppWindow) {
           }
 
           render_rect := sdl3.FRect {
-            x = (f32(window.window_size.x) - render_size.x) * .5 + f32(window.position_offset.x),
-            y = (f32(window.window_size.y) - render_size.y) * .5 + f32(window.position_offset.y),
+            x = (f32(window.window_size.x) - render_size.x) * .5 + window.render_offset.x,
+            y = (f32(window.window_size.y) - render_size.y) * .5 + window.render_offset.y,
             w = render_size.x,
             h = render_size.y,
           }

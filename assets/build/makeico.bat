@@ -1,1 +1,1 @@
-ffmpeg -i ../icon.png -filter_complex "[0:v]split=4[v1][v2][v3][v4]; [v1]scale=256:256:flags=lanczos[out1]; [v2]scale=128:128:flags=lanczos[out2]; [v3]scale=64:64:flags=lanczos[out3]; [v4]scale=32:32:flags=lanczos[out4]" -map "[out1]" -map "[out2]" -map "[out3]" -map "[out4]" -y ico.ico
+ffmpeg -i icon.png -filter_complex "[0:v]split=4[v1][v2][v3][v4]; [v1]scale=256:256:flags=lanczos[out1]; [v2]scale=128:128:flags=lanczos[out2]; [v3]scale=64:64:flags=lanczos[out3]; [v4]scale=32:32:flags=lanczos[out4]" -map "[out1]" -map "[out2]" -map "[out3]" -map "[out4]" -y icon.ico

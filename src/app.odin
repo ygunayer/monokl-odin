@@ -2,6 +2,7 @@ package monokl
 
 import "core:os"
 import "core:log"
+import "core:time"
 import "core:strings"
 import "vendor:sdl3"
 import sdli "vendor:sdl3/image"
@@ -75,9 +76,9 @@ app_run :: proc() -> Error {
   }
 
   event: sdl3.Event
+  t_last := time.tick_now()
   for len(app.windows) > 0 {
     for sdl3.PollEvent(&event) {
-
       #partial switch event.type {
         case .KEY_DOWN, .KEY_UP: {
           if event.key.windowID in app.windows {
@@ -131,7 +132,8 @@ app_run :: proc() -> Error {
     }
 
     for _, &window in &app.windows {
-      app_window_update(&window)
+      dt := time.tick_lap_time(&t_last)
+      app_window_update(&window, f32(time.duration_seconds(dt)))
     }
   }
 
