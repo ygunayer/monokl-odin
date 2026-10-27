@@ -170,4 +170,3 @@ image_cache_request_load :: proc(ic: ^ImageCache, window_id: sdl3.WindowID, full
 
   async_work_queue_submit_all(ic.work_queue, requests[:])
 }
-

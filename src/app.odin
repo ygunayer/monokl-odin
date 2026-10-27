@@ -80,6 +80,10 @@ app_run :: proc() -> Error {
   for len(app.windows) > 0 {
     for sdl3.PollEvent(&event) {
       #partial switch event.type {
+        case .QUIT: {
+          app_close_all_windows()
+        }
+
         case .KEY_DOWN, .KEY_UP: {
           if event.key.windowID in app.windows {
             app_window_handle_event(&app.windows[event.key.windowID], event)
@@ -194,6 +198,18 @@ app_open_file_paths :: proc(file_paths: []string) -> Error {
   }
 
   return nil
+}
+
+app_close_all_windows :: proc() {
+  ids := make([dynamic]sdl3.WindowID)
+  defer delete(ids)
+  for id in app.windows {
+    append(&ids, id)
+  }
+
+  for id in ids {
+    app_close_window(id)
+  }
 }
 
 app_close_window :: proc(id: sdl3.WindowID) {

@@ -147,7 +147,7 @@ def release_macos(arch: str):
     os.makedirs(res_dir)
 
     shutil.copy(
-        os.path.join("build", "Info.plist"),
+        os.path.join("assets", "build", "Info.plist"),
         os.path.join(contents_dir, "Info.plist")
     )
     shutil.copy(
@@ -155,13 +155,13 @@ def release_macos(arch: str):
         os.path.join(bin_dir, PROJECT_NAME)
     )
     shutil.copy(
-        os.path.join("build", "Icon.icns"),
+        os.path.join("assets", "build", "Icon.icns"),
         os.path.join(res_dir, "Icon.icns")
     )
-    shutil.copytree(
-        os.path.join("bin", "assets"),
-        os.path.join(res_dir, "assets"),
-    )
+    # shutil.copytree(
+    #     os.path.join("bin", "assets"),
+    #     os.path.join(res_dir, "assets"),
+    # )
 
     return target_dir
 
@@ -221,7 +221,7 @@ def compile(is_release: bool, should_clean: bool, target: Optional[str] = None) 
     print(f"Successfully compiled the executable in", "release" if is_release else "debug", "mode")
     return output_path
 
-def release(target: Optional[str] = None):
+def release(target: Optional[str] = None, arch: Optional[str] = "all"):
     if target == "all":
         for t in RELEASE_TARGETS:
             release(t)
@@ -241,7 +241,13 @@ def release(target: Optional[str] = None):
         die(f"Invalid target {target}")
 
     release_target = RELEASE_TARGETS[target]
-    for arch in release_target["archs"]:
+
+    target_archs = release_target["archs"]
+    if arch != "all":
+        if arch not in target_archs:
+            die(f"Invalid architecture {arch} for target {target} - must be one of {target_archs}")
+        target_archs = [arch]
+    for arch in target_archs:
         print(f"Building release for target {target}-{arch}")
         target_dir = release_target["handler"](arch)
         print(f"Successfully built target {target}-{arch} at path {target_dir}")
@@ -283,6 +289,7 @@ def main():
 
     release_parser = subparsers.add_parser("release", help="Bundles the game for the target platform")
     release_parser.add_argument("-t", "--target", help="The target platform to compile against. One of: windows, linux, macos")
+    release_parser.add_argument("-a", "--arch", help="The target architecture to compile against. One of: all, amd64, arm64")
 
     args = parser.parse_args()
 
@@ -292,7 +299,7 @@ def main():
         output_path = compile(args.release, args.clean)
         run(output_path)
     elif args.command == "release":
-        release(args.target)
+        release(args.target, args.arch)
 
 if __name__ == "__main__":
     main()

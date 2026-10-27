@@ -8,3 +8,5 @@
 .venv
 
 vendor/clay
+
+.DS_Store
