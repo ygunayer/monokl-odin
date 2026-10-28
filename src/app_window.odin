@@ -417,6 +417,13 @@ app_window_open_empty :: proc() -> (sdl3.WindowID, Error) {
   window := &app.windows[id]
   queue.init(&window.result_queue)
 
+  icon_surface := app_get_window_icon()
+  if icon_surface != nil {
+    if !sdl3.SetWindowIcon(handle, icon_surface) {
+      return 0, sdl_last_error("Failed to set window icon")
+    }
+  }
+
   return id, nil
 }
 

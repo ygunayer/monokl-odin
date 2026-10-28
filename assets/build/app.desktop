@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=monokl
+Comment=Lightweight image viewer
+Exec=monokl %F
+Icon=dev.yalin.monokl
+StartupWMClass=dev.yalin.monokl
+Categories=Graphics
+

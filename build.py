@@ -11,6 +11,7 @@ from typing import List, Tuple, NoReturn, Optional, Dict
 from pathlib import Path
 
 PROJECT_NAME = "monokl"
+FULL_PROJECT_ID = "dev.yalin.monokl"
 
 SYSTEM = platform.system()
 IS_WINDOWS = SYSTEM == "Windows"
@@ -58,6 +59,8 @@ def get_current_arch() -> str:
     match platform.machine():
         case "i386":
             return "i386"
+        case "x86_64":
+            return "amd64"
         case "AMD64":
             return "amd64"
         case "ARM64":
@@ -170,6 +173,10 @@ class WindowsAppBuilder(AppBuilder):
         return result
 
 class LinuxAppBuilder(AppBuilder):
+    def __init__(self, app_name: str, app_id: str):
+        super().__init__(app_name)
+        self.app_id = app_id
+
     def platform_name(self) -> str:
         return "linux"
 
@@ -177,11 +184,15 @@ class LinuxAppBuilder(AppBuilder):
         return ["amd64"]
 
     def get_additional_compile_args(self, arch: str, is_release: bool = False, is_bundle: bool = False) -> List[str]:
-        return []
+        return [
+            "-extra-linker-flags:-Wl,--start-group -Wl,-Bstatic -lSDL3_image -lSDL3 -lpng -lz -Wl,-Bdynamic -Wl,--end-group -pthread -lm",
+        ]
 
     def get_bundle_artifact_paths(self, src_exe_path: Path, bundle_out_root: Path) -> Dict[Path, Path]:
         return {
             src_exe_path: bundle_out_root / src_exe_path.name,
+            BUILD_ASSETS_ROOT / "icon.png": bundle_out_root / f"{self.app_id}.png",
+            BUILD_ASSETS_ROOT / "app.desktop": bundle_out_root / f"{self.app_id}.desktop",
         }
 
 class MacosAppBuilder(AppBuilder):
@@ -215,7 +226,7 @@ class MacosAppBuilder(AppBuilder):
 
 BUILDERS = {
     "windows": WindowsAppBuilder(PROJECT_NAME),
-    "linux": LinuxAppBuilder(PROJECT_NAME),
+    "linux": LinuxAppBuilder(PROJECT_NAME, FULL_PROJECT_ID),
     "macos": MacosAppBuilder(PROJECT_NAME),
 }
 

@@ -7,10 +7,13 @@ import "core:strings"
 import "vendor:sdl3"
 import sdli "vendor:sdl3/image"
 
+APP_ICON_DATA := #load("../assets/build/icon.png")
+
 App :: struct {
   windows: map[sdl3.WindowID]AppWindow,
   dropped_files: map[sdl3.WindowID][dynamic]string,
   image_cache: ImageCache,
+  window_icon_surface: ^sdl3.Surface,
 }
 
 MOD_KEY_MASK: sdl3.Keymod = {.LSHIFT, .RSHIFT, .LALT, .RALT, .LCTRL, .RCTRL, .LGUI, .RGUI}
@@ -24,6 +27,23 @@ is_key_down :: proc(event: sdl3.Event, key: sdl3.Keycode, mods: sdl3.Keymod) -> 
 app_init :: proc() -> Error {
   if !sdl3.Init({.VIDEO, .EVENTS}) {
     return sdl_last_error("Failed to initialize app")
+  }
+
+  // set app icon and metadata
+  {
+    // TODO: get app version from somewhere
+    _ = sdl3.SetAppMetadata("monokl", "0.0.1", "dev.yalin.monokl")
+
+    icon_stream := sdl3.IOFromConstMem(raw_data(APP_ICON_DATA), len(APP_ICON_DATA))
+    if icon_stream == nil {
+      return sdl_last_error("Failed to obtain memory for window icon")
+    }
+
+    icon_surface := sdli.Load_IO(icon_stream, true)
+    if icon_surface == nil {
+      return sdl_last_error("Failed to create window icon surface")
+    }
+    app.window_icon_surface = icon_surface
   }
 
   app.windows = make(map[sdl3.WindowID]AppWindow)
@@ -48,6 +68,11 @@ app_destroy :: proc() {
     }
     delete(app.windows)
     app.windows = nil
+  }
+
+  if app.window_icon_surface != nil {
+    sdl3.DestroySurface(app.window_icon_surface)
+    app.window_icon_surface = nil
   }
 
   if app.dropped_files != nil {
@@ -144,6 +169,10 @@ app_run :: proc() -> Error {
   return nil
 }
 
+app_get_window_icon :: proc() -> ^sdl3.Surface {
+  return app.window_icon_surface
+}
+
 app_is_supported_file :: proc(full_path: string) -> bool {
   ext := strings.to_lower(os.ext(full_path))
   defer delete(ext)
@@ -234,3 +263,4 @@ app_on_image_load_finished :: proc(result: ImageLoadResultItem) {
     app_window_on_image_load_finished(wnd, result.image)
   }
 }
+
