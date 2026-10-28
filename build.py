@@ -7,7 +7,8 @@ import argparse
 import platform
 import subprocess
 import urllib.request
-from typing import List, Tuple, NoReturn, Optional
+from typing import List, Tuple, NoReturn, Optional, Dict
+from pathlib import Path
 
 PROJECT_NAME = "monokl"
 
@@ -17,6 +18,14 @@ IS_MACOS = SYSTEM == "Darwin"
 IS_LINUX = SYSTEM == "Linux"
 
 BINARY_EXTENSION = ".exe" if IS_WINDOWS else ""
+
+ASSETS_ROOT = Path("assets")
+BUILD_ASSETS_ROOT = ASSETS_ROOT / "build"
+
+BIN_ROOT = Path("bin")
+DEBUG_OUT_ROOT = BIN_ROOT / "debug"
+RELEASE_OUT_ROOT = BIN_ROOT / "release"
+BUNDLE_OUT_ROOT = BIN_ROOT / "bundle"
 
 def die(*args) -> NoReturn:
     for a in args:
@@ -34,238 +43,193 @@ def shexec(cmd: str, flags: List[str] = []):
             output,
         )
 
+def get_current_platform() -> str:
+    match platform.system():
+        case "Windows":
+            return "windows"
+        case "Linux":
+            return "linux"
+        case "Darwin":
+            return "macos"
+        case name:
+            raise ValueError(f"Unknown platform {name}")
+
+def get_current_arch() -> str:
+    match platform.machine():
+        case "i386":
+            return "i386"
+        case "AMD64":
+            return "amd64"
+        case "ARM64":
+            return "arm64"
+        case name:
+            raise ValueError(f"Unknown CPU architecture {name}")
+
 
 ODIN_EXE_PATH = shutil.which("odin") or ""
 if not ODIN_EXE_PATH:
     die("Odin compiler binary not found in PATH")
 
 
-RELEASE_ROOT = os.path.join("build", "release")
 
-def recreate_release_path(target: str, arch: str) -> str:
-    target_dir = os.path.join(RELEASE_ROOT, f"{PROJECT_NAME}-{target}-{arch}")
-    if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
-    os.makedirs(target_dir)
-    return target_dir
+class AppBuilder:
+    def __init__(self, app_name: str):
+        self.app_name = app_name
 
-def release_windows(arch: str) -> str:
-    rc_path = shutil.which("rc.exe")
-    if not rc_path:
-        die("rc.exe not found in PATH. You might want to run this command from a Visual Studio command prompt")
+    def platform_name(self) -> str:
+        raise NotImplemented
 
-    # prepare
-    clean()
-    os.makedirs("bin")
-    copy_assets()
+    def supported_archs(self) -> List[str]:
+        raise NotImplemented
 
-    shexec("rc.exe", ["/fo", "bin\\resources.res", "assets\\build\\resources.rc"])
-    shexec("cvtres.exe", ["/MACHINE:" + ("X64" if arch == "amd64" else "X86"), "bin\\resources.res"])
+    def get_additional_compile_args(self, arch: str, is_release: bool = False, is_bundle: bool = False) -> List[str]:
+        raise NotImplemented
 
-    # compile
-    exe_name = f"{PROJECT_NAME}.exe"
-    odin_args = [
-        "build",
-        "src/",
-        "-subsystem:windows",
-        f"-target:windows_{arch}",
-        f"-out=bin\\{PROJECT_NAME}.exe",
-        "-o:speed",
-        "-extra-linker-flags:bin\\resources.obj"
-    ]
-    shexec(ODIN_EXE_PATH, odin_args)
+    def get_bundle_artifact_paths(self, src_exe_path: Path, bundle_out_root: Path) -> Dict[Path, Path]:
+        raise NotImplemented
 
-    # copy build artifacts to release folder
-    target_dir = recreate_release_path("windows", arch)
-    # shutil.copytree(
-    #     os.path.join("bin", "assets"),
-    #     os.path.join(target_dir, "assets")
-    # )
-    for name in ["SDL3.dll", "SDL3_image.dll"]:
-        if not os.path.exists(os.path.join(target_dir, name)):
-            shutil.copy(os.path.join("lib", name), target_dir)
-    shutil.copy(
-        os.path.join("bin", exe_name),
-        os.path.join(target_dir, exe_name)
-    )
+    def get_exe_extension(self) -> str:
+        return ""
 
-    return target_dir
+    def get_bundle_output_path(self, arch: str) -> Path:
+        return BUNDLE_OUT_ROOT / f"{self.platform_name()}-{arch}"
 
-def release_linux(arch: str):
-    # prepare
-    clean()
-    os.makedirs("bin")
-    copy_assets()
+    def get_compiled_exe_path(self, arch: str, is_release: bool):
+        parent = RELEASE_OUT_ROOT if is_release else DEBUG_OUT_ROOT
+        return parent / f"{self.app_name}{self.get_exe_extension()}"
 
-    # compile
-    odin_args = [
-        "build",
-        "src/",
-        f"-target:linux_{arch}",
-        f"-out=bin/{PROJECT_NAME}",
-        "-o:speed",
-    ]
-    shexec(ODIN_EXE_PATH, odin_args)
+    def compile(self, arch: str, is_release: bool = False, is_bundle: bool = False, clean: bool = False) -> Path:
+        out_exe_path = self.get_compiled_exe_path(arch, is_release)
+        if clean and out_exe_path.parent.exists():
+            shutil.rmtree(out_exe_path.parent)
+        out_exe_path.parent.mkdir(parents=True, exist_ok=True)
+        odin_args = [
+            "build",
+            "src/",
+            f"-out:{out_exe_path}",
+            f"-target:{self.platform_name()}_{arch}"
+        ] + (
+            ["-o:speed", "-no-bounds-check"] if is_release else ["-o:none", "-debug"]
+        ) + self.get_additional_compile_args(arch, is_release, is_bundle)
+        shexec(ODIN_EXE_PATH, odin_args)
+        if not out_exe_path.exists():
+            die("Compilation failed")
+        print(f"Successfully compiled {self.app_name} to path {out_exe_path}")
+        return out_exe_path
 
-    # copy build artifacts to release folder
-    target_dir = recreate_release_path("linux", arch)
-    shutil.copytree(
-        os.path.join("bin", "assets"),
-        os.path.join(target_dir, "assets")
-    )
-    shutil.copy(
-        os.path.join("bin", PROJECT_NAME),
-        os.path.join(target_dir, PROJECT_NAME)
-    )
-    return target_dir
+    def recreate_bundle_output_path(self, arch: str) -> Path:
+        output_path = self.get_bundle_output_path(arch)
+        if output_path.exists():
+            shutil.rmtree(output_path)
+        output_path.mkdir(parents=True, exist_ok=True)
+        return output_path
 
-def release_macos(arch: str):
-    # prepare
-    clean()
-    os.makedirs("bin")
-    copy_assets()
+    def bundle(self, arch: str) -> Path:
+        archs = self.supported_archs()
+        if arch not in archs:
+            raise ValueError(f"Unsupported arch {arch} for platform {self.platform_name()} - possible values are: {archs}")
+        bundle_out_path = self.recreate_bundle_output_path(arch)
+        out_exe_path = self.compile(arch, is_release=True, is_bundle=True, clean=True)
+        artifacts = self.get_bundle_artifact_paths(out_exe_path, bundle_out_path)
+        for src in artifacts.keys():
+            dst = artifacts[src]
+            shutil.copy(src, dst)
+            print(f"Successfully copied build artifact {src} to {dst}")
+        print(f"Successfully bundled {self.app_name} into path {bundle_out_path}")
+        return bundle_out_path
 
-    # compile
-    odin_args = [
-        "build",
-        "src/",
-        f"-target:darwin_{arch}",
-        f"-out=bin/{PROJECT_NAME}",
-        "-o:speed",
-        "-define:MACOS_BUNDLE=true",
-    ]
-    shexec(ODIN_EXE_PATH, odin_args)
+    def bundle_all(self) -> List[Path]:
+        return [self.bundle(arch) for arch in self.supported_archs()]
 
-    # copy build artifacts to release folder
-    target_dir = recreate_release_path("darwin", arch)
 
-    curr_target_path = os.path.join(target_dir, PROJECT_NAME + ".app")
-    contents_dir = os.path.join(curr_target_path, "Contents")
-    bin_dir = os.path.join(contents_dir, "MacOS")
-    res_dir = os.path.join(contents_dir, "Resources")
-    os.makedirs(bin_dir)
-    os.makedirs(res_dir)
+class WindowsAppBuilder(AppBuilder):
+    def platform_name(self) -> str:
+        return "windows"
 
-    shutil.copy(
-        os.path.join("assets", "build", "Info.plist"),
-        os.path.join(contents_dir, "Info.plist")
-    )
-    shutil.copy(
-        os.path.join("bin", PROJECT_NAME),
-        os.path.join(bin_dir, PROJECT_NAME)
-    )
-    shutil.copy(
-        os.path.join("assets", "build", "Icon.icns"),
-        os.path.join(res_dir, "Icon.icns")
-    )
-    # shutil.copytree(
-    #     os.path.join("bin", "assets"),
-    #     os.path.join(res_dir, "assets"),
-    # )
+    def supported_archs(self) -> List[str]:
+        return ["i386", "amd64", "arm64"]
 
-    return target_dir
+    def get_additional_compile_args(self, arch: str, is_release: bool = False, is_bundle: bool = False) -> List[str]:
+        rc_resource_path = BUILD_ASSETS_ROOT / "resources.rc"
+        return ["-subsystem:windows", f"-resource:{rc_resource_path}"]
 
-RELEASE_TARGETS = {
-    "windows": {
-        "handler": release_windows,
-        "archs": ["amd64"],
-    },
-    "linux": {
-        "handler": release_linux,
-        "archs": ["amd64"],
-    },
-    "macos": {
-        "handler": release_macos,
-        "archs": ["amd64", "arm64"],
-    },
+    def get_bundle_artifact_paths(self, src_exe_path: Path, bundle_out_root: Path) -> Dict[Path, Path]:
+        return {
+            src_exe_path: bundle_out_root / src_exe_path.name,
+            src_exe_path.parent / "SDL3.dll": bundle_out_root / "SDL3.dll",
+            src_exe_path.parent / "SDL3_image.dll": bundle_out_root / "SDL3_image.dll",
+        }
+
+    def get_exe_extension(self) -> str:
+        return ".exe"
+
+    def compile(self, arch: str, is_release: bool = False, is_bundle: bool = False, clean: bool = False) -> Path:
+        result = super().compile(arch, is_release, is_bundle, clean)
+        shutil.copy(Path("lib") / "SDL3.dll", result.parent / "SDL3.dll")
+        shutil.copy(Path("lib") / "SDL3_image.dll", result.parent / "SDL3_image.dll")
+        return result
+
+class LinuxAppBuilder(AppBuilder):
+    def platform_name(self) -> str:
+        return "linux"
+
+    def supported_archs(self) -> List[str]:
+        return ["amd64"]
+
+    def get_additional_compile_args(self, arch: str, is_release: bool = False, is_bundle: bool = False) -> List[str]:
+        return []
+
+    def get_bundle_artifact_paths(self, src_exe_path: Path, bundle_out_root: Path) -> Dict[Path, Path]:
+        return {
+            src_exe_path: bundle_out_root / src_exe_path.name,
+        }
+
+class MacosAppBuilder(AppBuilder):
+    def platform_name(self) -> str:
+        return "darwin"
+
+    def supported_archs(self) -> List[str]:
+        return ["amd64"]
+
+    def get_additional_compile_args(self, arch: str, is_release: bool = False, is_bundle: bool = False) -> List[str]:
+        return []
+
+    def get_bundle_output_path(self, arch: str) -> Path:
+        parent = BUNDLE_OUT_ROOT / f"{self.platform_name()}-{arch}"
+        app_package_name = self.app_name[0].upper() + self.app_name[1:]
+        return parent / f"{app_package_name}.app"
+
+    def get_bundle_artifact_paths(self, src_exe_path: Path, bundle_out_root: Path) -> Dict[Path, Path]:
+        contents_dir = bundle_out_root / "Contents"
+        bin_dir = bundle_out_root / "MacOS"
+        res_dir = bundle_out_root / "Resources"
+        contents_dir.mkdir(exist_ok=True)
+        res_dir.mkdir(exist_ok=True)
+        res_dir.mkdir(exist_ok=True)
+        return {
+            src_exe_path: bin_dir / self.app_name,
+            BUILD_ASSETS_ROOT / "Info.plist": contents_dir / "Info.plist",
+            BUILD_ASSETS_ROOT / "Icon.icns": res_dir / "Icon.icns",
+        }
+
+
+BUILDERS = {
+    "windows": WindowsAppBuilder(PROJECT_NAME),
+    "linux": LinuxAppBuilder(PROJECT_NAME),
+    "macos": MacosAppBuilder(PROJECT_NAME),
 }
+
+
+def get_builder(target_platform: Optional[str] = None) -> AppBuilder:
+    platform = target_platform or get_current_platform()
+    if platform not in BUILDERS:
+        raise ValueError(f"Unsupported platform {platform}")
+    return BUILDERS[platform]
+
 
 ##################################
 # Commands
 ##################################
-def clean():
-    if os.path.exists("bin"):
-        shutil.rmtree("bin")
-        return True
-    return False
-
-def compile(is_release: bool, should_clean: bool, target: Optional[str] = None) -> str:
-    if ODIN_EXE_PATH is None:
-        raise ValueError("Odin compiler binary not found in PATH")
-
-    if should_clean:
-        clean()
-
-    if not os.path.exists("bin"):
-        os.makedirs("bin")
-
-    copy_libs()
-    copy_assets()
-
-    extension = BINARY_EXTENSION
-    if target and target.startswith("js_"):
-        extension = ""
-
-    output_path = os.path.join("bin", f"{PROJECT_NAME}{extension}")
-    flags = ["build", "src/", f"-out={output_path}"]
-    if is_release:
-        flags = flags + ["-o:speed", "-no-bounds-check"]
-        if IS_WINDOWS and (not target or target.startswith("win")):
-            flags.append("-subsystem:windows")
-        if target:
-            flags.append(f"-target:{target}")
-    else:
-        flags = flags + ["-o:none", "-debug"]#, "-sanitize:address"]
-
-    shexec("odin", flags)
-    print(f"Successfully compiled the executable in", "release" if is_release else "debug", "mode")
-    return output_path
-
-def release(target: Optional[str] = None, arch: Optional[str] = "all"):
-    if target == "all":
-        for t in RELEASE_TARGETS:
-            release(t)
-        return
-
-    if not target:
-        if IS_WINDOWS: target = "windows"
-        elif IS_LINUX: target = "linux"
-        elif IS_MACOS: target = "macos"
-        if target:
-            print(f"Auto-detected release target {target}")
-
-    if not target:
-        die("No target specified")
-
-    if target not in RELEASE_TARGETS:
-        die(f"Invalid target {target}")
-
-    release_target = RELEASE_TARGETS[target]
-
-    target_archs = release_target["archs"]
-    if arch != "all":
-        if arch not in target_archs:
-            die(f"Invalid architecture {arch} for target {target} - must be one of {target_archs}")
-        target_archs = [arch]
-    for arch in target_archs:
-        print(f"Building release for target {target}-{arch}")
-        target_dir = release_target["handler"](arch)
-        print(f"Successfully built target {target}-{arch} at path {target_dir}")
-
-def run(output_path: str):
-    os.system(output_path)
-
-def copy_assets():
-    # Comment out to copy assets to your bin path
-    pass
-
-def copy_libs():
-    if IS_WINDOWS:
-        for name in ["SDL3.dll", "SDL3_image.dll"]:
-            if not os.path.exists(os.path.join("bin", name)):
-                shutil.copy(os.path.join("lib", name), "bin")
-
-
 def main():
     """Set up the argument parser with the specified commands and flags."""
 
@@ -274,32 +238,46 @@ def main():
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
-    subparsers.required = True  
+    subparsers.required = True
 
     compile_parser = subparsers.add_parser("compile", help="Compiles the executable")
     compile_parser.add_argument("-e", "--release", action="store_true", help="Compiles the executable in release mode (default: false)")
     compile_parser.add_argument("-w", "--watch", action="store_true", help="Enables watch mode, recompiling every time files are changed")
     compile_parser.add_argument("-c", "--clean", action="store_true", help="Forces a cleanup before sync")
-    compile_parser.add_argument("-t", "--target", help="The target platform to compile against")
+    compile_parser.add_argument("-t", "--target", help="The target platform to compile against. One of: windows, linux, macos")
+    compile_parser.add_argument("-a", "--arch", help="The target architecture to compile against. One of: amd64, arm64")
 
-    run_parser = subparsers.add_parser("run", help="Compiles and then runs the executable")
+    run_parser = subparsers.add_parser("run", help="Compiles the executable in debug mode and runs it")
     run_parser.add_argument("-e", "--release", action="store_true", help="Compiles the executable in release mode (default: false)")
     run_parser.add_argument("-w", "--watch", action="store_true", help="Enables watch mode, recompiling every time files are changed")
     run_parser.add_argument("-c", "--clean", action="store_true", help="Forces a cleanup before sync")
+    run_parser.add_argument("-t", "--target", help="The target platform to compile against. One of: windows, linux, macos")
+    run_parser.add_argument("-a", "--arch", help="The target architecture to compile against. One of: amd64, arm64")
 
-    release_parser = subparsers.add_parser("release", help="Bundles the game for the target platform")
-    release_parser.add_argument("-t", "--target", help="The target platform to compile against. One of: windows, linux, macos")
-    release_parser.add_argument("-a", "--arch", help="The target architecture to compile against. One of: all, amd64, arm64")
+    bundle_parser = subparsers.add_parser("bundle", help="Bundles the app for the target platform")
+    bundle_parser.add_argument("-t", "--target", help="The target platform to compile against. One of: windows, linux, macos")
+    bundle_parser.add_argument("-a", "--arch", help="The target architecture to compile against. One of: amd64, arm64")
 
     args = parser.parse_args()
 
-    if args.command == "compile":
-        compile(args.release, args.clean, target=args.target)
-    elif args.command == "run":
-        output_path = compile(args.release, args.clean)
-        run(output_path)
-    elif args.command == "release":
-        release(args.target, args.arch)
+    builder = get_builder(args.target)
+    target_arch = args.arch or get_current_arch()
+
+    try:
+        match args.command:
+            case "compile":
+                builder.compile(arch=target_arch, is_release=args.release, clean=args.clean)
+
+            case "run":
+                output_path = builder.compile(arch=target_arch, is_release=args.release, clean=args.clean)
+                # TODO: watch for changes if enabled
+                shexec(str(output_path))
+
+            case "bundle":
+                builder.bundle(target_arch)
+    except Exception as e:
+        die(str(e))
+
 
 if __name__ == "__main__":
     main()
