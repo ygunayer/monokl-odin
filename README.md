@@ -1,6 +1,8 @@
 # monokl
 Lightweight, cross-platform, minimalistic image viewer written in Odin.
 
+This is a rewrite of my C++ version at [ygunayer/monokl](https://github.com/ygunayer/monokl), with more features and (hopefully) a longer shelf life.
+
 ![monokl on Windows](./docs/windows.jpg)
 
 ## Features
