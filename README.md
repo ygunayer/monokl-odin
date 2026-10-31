@@ -15,12 +15,12 @@ This is a rewrite of my C++ version at [ygunayer/monokl](https://github.com/ygun
 ## Keyboard and Mouse Shortcuts
 | Action | Key |
 |--------|-----|
-| Go to next image | `Right Arrow` |
-| Go to previous image | `Left Arrow` |
+| Go to next image | `Right Arrow`, `Mouse Button 5` |
+| Go to previous image | `Left Arrow`, `Mouse Button 4` |
 | Go to first image in folder | `Home` |
 | Go to last image in folder | `End` |
-| Zoom in | `Mouse wheel scroll up` |
-| Zoom out | `Mouse wheel scroll down` |
+| Zoom in | `Mouse Wheel Up` |
+| Zoom out | `Mouse Wheel Down` |
 | Pan image | Click and drag mouse |
 | Recenter image | `C` |
 | Fit image to screen and recenter it | `Numpad 0` |
@@ -37,6 +37,7 @@ This project is a work in progress, and will at my own pacing. See the following
 - [ ] **UX:** The app windows always open at `1920x1080` resolution. Open the windows at a lower resolution on smaller screens
 - [ ] **UX:** Use spinners to indicate loading, and a better font to indicate various on-screen states
 - [ ] **UX:** Newly opened windows are centered on the screen. They should cascade towards the bottom right to indicate
+- [ ] **UX:** Images always zoom in and out from their center, not relative to the screen
 - [ ] **Feature:** Hiding/unhiding isn't working fully yet
 - [ ] **Feature:** Add a floating sidebar menu to display the images as a grid
 - [ ] **Feature:** Add support for other image types (GIF, TGA, EXR, etc.)
@@ -44,6 +45,7 @@ This project is a work in progress, and will at my own pacing. See the following
 - [ ] **Misc:** `.monokl` files aren't automatically hidden on Windows
 - [ ] **Performance:** The preloading currently tries to load all images from a single folder without limitation, which could cause huge memory usage or even OOM issues
 - [ ] **Performance:** Panning isn't smooth during preloading
+- [ ] **Performance:** Perhaps we shouldn't draw static images on every frame?
 - [ ] **Bundling:** Statically link all dependencies for all platforms for more portable output
 - [ ] **Bundling:** The Linux install script that is produced in the bundling step is incomplete. This could be replace this with an AppImage bundle
 - [ ] **CI/CD:** No CI/CD automations are implemented yet. This means the project must be built from source manually

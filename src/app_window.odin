@@ -792,6 +792,14 @@ app_window_handle_event :: proc(window: ^AppWindow, event: sdl3.Event) {
         window.is_panning = false
         window.position_offset += window.mouse_pos - window.pan_start_pos
       }
+
+      if event.button.button == sdl3.BUTTON_X2 && !window.is_panning {
+        app_window_advance(window, 1)
+      }
+
+      if event.button.button == sdl3.BUTTON_X1 && !window.is_panning {
+        app_window_advance(window, -1)
+      }
     }
   }
 }
