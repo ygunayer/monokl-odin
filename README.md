@@ -31,13 +31,14 @@ This is a rewrite of my C++ version at [ygunayer/monokl](https://github.com/ygun
 | Toggle "show hidden" | `Shift+H` |
 
 ## To-dos
-This project is a work in progress, and will at my own pacing. See the following to-do list for known bugfixes, features, improvements etc.
+This project is a work in progress, and will move at my own pace. See the following to-do list for known bugfixes, features, improvements etc.
 - [ ] **Bug:** When the window is resized, the positioning and scale/zoom of the image changes in an unintuitive way
 - [ ] **Bug:** When the user zooms in and out, the image is reposition
 - [x] **UX:** The app windows always open at `1920x1080` resolution. Open the windows at a lower resolution on smaller screens
 - [ ] **UX:** Use spinners to indicate loading, and a better font to indicate various on-screen states
 - [ ] **UX:** Newly opened windows are centered on the screen. They should cascade towards the bottom right to indicate
 - [ ] **UX:** Images always zoom in and out from their center, not relative to the screen
+- [ ] **UX:** Implement pinch to zoom for touch input
 - [ ] **Feature:** Hiding/unhiding isn't working fully yet
 - [ ] **Feature:** Add a floating sidebar menu to display the images as a grid
 - [ ] **Feature:** Add support for other image types (GIF, TGA, EXR, etc.)
