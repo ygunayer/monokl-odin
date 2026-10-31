@@ -14,6 +14,7 @@ App :: struct {
   dropped_files: map[sdl3.WindowID][dynamic]string,
   image_cache: ImageCache,
   window_icon_surface: ^sdl3.Surface,
+  default_window_size: [2]i32,
 }
 
 MOD_KEY_MASK: sdl3.Keymod = {.LSHIFT, .RSHIFT, .LALT, .RALT, .LCTRL, .RCTRL, .LGUI, .RGUI}
@@ -45,6 +46,27 @@ app_init :: proc() -> Error {
     }
     app.window_icon_surface = icon_surface
   }
+
+  // get default display info
+  {
+    display_id := sdl3.GetPrimaryDisplay()
+    display_mode := sdl3.GetDesktopDisplayMode(display_id)
+    if display_mode == nil {
+      return sdl_last_error("Failed to get primary display info")
+    }
+
+    if display_mode.h >= 1440 {
+      app.default_window_size = { 1920, 1080 }
+    } else if display_mode.h >= 1080 {
+      app.default_window_size = { 1366, 768 }
+    } else {
+      app.default_window_size = {
+        i32(f32(display_mode.w) * .8),
+        i32(f32(display_mode.h) * .8),
+      }
+    }
+  }
+
 
   app.windows = make(map[sdl3.WindowID]AppWindow)
   app.dropped_files = make(map[sdl3.WindowID][dynamic]string)
@@ -264,3 +286,6 @@ app_on_image_load_finished :: proc(result: ImageLoadResultItem) {
   }
 }
 
+app_get_default_window_size :: proc() -> [2]i32 {
+  return app.default_window_size
+}

@@ -56,14 +56,14 @@ def get_current_platform() -> str:
             raise ValueError(f"Unknown platform {name}")
 
 def get_current_arch() -> str:
-    match platform.machine():
+    match platform.machine().lower():
         case "i386":
             return "i386"
         case "x86_64":
             return "amd64"
-        case "AMD64":
+        case "amd64":
             return "amd64"
-        case "ARM64":
+        case "arm64":
             return "arm64"
         case name:
             raise ValueError(f"Unknown CPU architecture {name}")

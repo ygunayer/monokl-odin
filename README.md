@@ -34,7 +34,7 @@ This is a rewrite of my C++ version at [ygunayer/monokl](https://github.com/ygun
 This project is a work in progress, and will at my own pacing. See the following to-do list for known bugfixes, features, improvements etc.
 - [ ] **Bug:** When the window is resized, the positioning and scale/zoom of the image changes in an unintuitive way
 - [ ] **Bug:** When the user zooms in and out, the image is reposition
-- [ ] **UX:** The app windows always open at `1920x1080` resolution. Open the windows at a lower resolution on smaller screens
+- [x] **UX:** The app windows always open at `1920x1080` resolution. Open the windows at a lower resolution on smaller screens
 - [ ] **UX:** Use spinners to indicate loading, and a better font to indicate various on-screen states
 - [ ] **UX:** Newly opened windows are centered on the screen. They should cascade towards the bottom right to indicate
 - [ ] **UX:** Images always zoom in and out from their center, not relative to the screen

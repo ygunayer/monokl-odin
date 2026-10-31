@@ -395,7 +395,9 @@ app_window_open_empty :: proc() -> (sdl3.WindowID, Error) {
   handle: ^sdl3.Window
   renderer: ^sdl3.Renderer
 
-  if !sdl3.CreateWindowAndRenderer("monokl", 1920, 1080, {.RESIZABLE}, &handle, &renderer) {
+  window_size := app_get_default_window_size()
+
+  if !sdl3.CreateWindowAndRenderer("monokl", window_size.x, window_size.y, {.RESIZABLE}, &handle, &renderer) {
     return 0, sdl_last_error("Failed to create window")
   }
 
@@ -410,7 +412,7 @@ app_window_open_empty :: proc() -> (sdl3.WindowID, Error) {
     handle = handle,
     all_files = make(map[string]FileEntry),
     shown_files = make([dynamic]string),
-    window_size = {1920, 1080},
+    window_size = {window_size.x, window_size.y},
     zoom_factor = 1.0,
   }
 
