@@ -28,7 +28,6 @@ ImageLoadResultItem :: struct {
 
 ImageCache :: struct {
   result_mutex: sync.Mutex,
-  // images: map[string]Image,
   loaded: map[string]bool,
   work_queue: ^AsyncWorkQueue(^ImageCache, ImageLoadRequestItem, ImageLoadResultItem),
 }
@@ -91,8 +90,6 @@ _fn_handle_result :: proc(ic: ^ImageCache, result: ImageLoadResultItem) {
     return
   }
 
-  // ic.images[result.image.full_path] = result.image
-
   app_on_image_load_finished(result)
 }
 
@@ -125,18 +122,6 @@ image_cache_destroy :: proc(ic: ^ImageCache) {
     ic.work_queue = nil
   }
 
-  // if ic.images != nil {
-  //   for _, &image in &ic.images {
-  //     if image.surface != nil {
-  //       sdl3.DestroySurface(image.surface)
-  //       image.surface = nil
-  //     }
-  //     delete(image.full_path)
-  //   }
-  //   delete(ic.images)
-  //   ic.images = nil
-  // }
-
   if ic.loaded != nil {
     delete(ic.loaded)
     ic.loaded = nil
@@ -155,11 +140,6 @@ image_cache_request_load :: proc(ic: ^ImageCache, window_id: sdl3.WindowID, full
       continue
     }
 
-    // full_path := strings.clone(path)
-    // ic.images[full_path] = {
-    //   full_path = full_path,
-    //   loaded_successfully = false,
-    // }
     ic.loaded[path] = true
 
     append(&requests, ImageLoadRequestItem {

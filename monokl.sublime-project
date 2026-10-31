@@ -37,19 +37,5 @@
 				"cmd": ["python3.exe", "${project_path}\\build.py", "compile"],
 			}
 		},
-	],
-	"debugger_configurations":
-	[
-		{
-			"name": "Launch - LLDB",
-			"type": "lldb",
-			"request": "launch",
-			"cwd": "${project_path}",
-			"terminal": "console",
-			"program": "${project_path}/bin/monokl",
-			"windows": {
-				"program": "${project_path}/bin/monokl.exe"
-			}
-		}
-	],
+	]
 }
